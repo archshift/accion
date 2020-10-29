@@ -2,22 +2,20 @@ f ~ Fn(Int)(Int)
 f(x) :=
     a + b
 
-List(ty) :=
-    struct (
-        .head := ty,
-        .tail := List(ty),
-    )
+#List(ty) :=
+#    struct (
+#        .head := ty,
+#        .tail := List(ty),
+#    )
 
-let cons ~ \(T) := Fn(T, List(T))(List(T));
-cons(head, tail) :=
-    struct (
-        .head := head,
-        .tail := tail
-    )
+cons ~ \(T) := Fn(T, List(T))(List(T))
+#cons(head, tail) :=
+#    struct (
+#        .head := head,
+#        .tail := tail
+#    )
 
 cons_int := impl_cons(int)
-cons_int()
-
 
 f(x) :=
     if

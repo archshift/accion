@@ -11,7 +11,6 @@ const EXTRA_SRCS: &[&str] = &[
     "src/parse_ctx.h",
     "src/parser.c",
     "src/parser.h",
-    "src/ast.c",
     "src/ast.h",
 ];
 
@@ -61,7 +60,6 @@ fn main() {
 
     cc::Build::new()
         .file("src/parser.c")
-        .file("src/ast.c")
         .file(bison_c)
         .file(lex_c)
         .include(out_path)

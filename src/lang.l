@@ -57,4 +57,5 @@
 ","                                     { return COMMA; }
 ";"                                     { return SEMI; }
 
+#[^n]*\n                                {}
 [ \n\t]                                 {}
