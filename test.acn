@@ -1,0 +1,48 @@
+f ~ Fn(Int)(Int)
+f(x) :=
+    a + b
+
+List(ty) :=
+    struct (
+        .head := ty,
+        .tail := List(ty),
+    )
+
+let cons ~ \(T) := Fn(T, List(T))(List(T));
+cons(head, tail) :=
+    struct (
+        .head := head,
+        .tail := tail
+    )
+
+cons_int := impl_cons(int)
+cons_int()
+
+
+f(x) :=
+    if
+        if a then b else c
+    then b
+    else if x then y
+    else c
+
+f(x) :=
+    if a then g(x)
+    else if a is (
+        1 then h(x),
+        2 then b(x),
+        3 then a(x),
+        else unreachable
+    )
+
+map(what, iter) :=
+    what(*iter) -> map(what, iter->...)
+
+print!(args) :=
+    let strjoin :=
+        reduce(
+            \(acc, s) := acc -> s,
+            "",
+            ...
+        );
+    syscall!(SYS_PRINT, strjoin(args))
