@@ -5,11 +5,24 @@ use crate::parser::raw;
 use crate::lliter::adapt_ll;
 use crate::sexp::SExp;
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct AstNodeId(usize);
+
+pub trait AstNode : fmt::Debug {
+    fn node_id(&self) -> AstNodeId;
+}
+
 macro_rules! wrap {
     ($node:ident, $raw_node:path) => {
         #[repr(transparent)]
         pub struct $node {
             inner: *const $raw_node,
+        }
+
+        impl AstNode for $node {
+            fn node_id(&self) -> AstNodeId {
+                AstNodeId(self.inner as usize)
+            }
         }
 
         impl $node {
@@ -34,7 +47,6 @@ wrap!(ExprIdent, raw::ast_expr);
 wrap!(ExprLiteral, raw::ast_expr);
 wrap!(ExprIf, raw::ast_expr);
 wrap!(ExprIfCase, raw::ast_expr);
-wrap!(ExprCall, raw::ast_expr);
 wrap!(ExprVarDecl, raw::ast_expr);
 wrap!(ExprFnDecl, raw::ast_expr);
 wrap!(ExprEntype, raw::ast_expr);
@@ -65,7 +77,7 @@ impl fmt::Debug for Ast {
 
 
 impl Ident {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         unsafe { ffi::CStr::from_ptr(self.unwrap().name) }
             .to_str()
             .unwrap()
@@ -229,7 +241,7 @@ impl fmt::Debug for Expr {
 }
 
 impl ExprUnary {
-    fn operator(&self) -> raw::ast_operator {
+    pub fn operator(&self) -> raw::ast_operator {
         unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -238,7 +250,7 @@ impl ExprUnary {
         }
     }
 
-    fn operand(&self) -> AnyExpr {
+    pub fn operand(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -259,7 +271,7 @@ impl fmt::Debug for ExprUnary {
 }
 
 impl ExprBinary {
-    fn operator(&self) -> raw::ast_operator {
+    pub fn operator(&self) -> raw::ast_operator {
         unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -268,7 +280,7 @@ impl ExprBinary {
         }
     }
 
-    fn operands(&self) -> (AnyExpr, AnyExpr) {
+    pub fn operands(&self) -> (AnyExpr, AnyExpr) {
         let s = unsafe {
             &self.unwrap()
                 .__bindgen_anon_1
@@ -291,7 +303,7 @@ impl fmt::Debug for ExprBinary {
 }
 
 impl ExprLiteral {
-    fn literal(&self) -> AnyLiteral {
+    pub fn literal(&self) -> AnyLiteral {
         let inner = unsafe {
             self.unwrap().__bindgen_anon_1.literal
         };
@@ -307,7 +319,7 @@ impl fmt::Debug for ExprLiteral {
 }
 
 impl ExprIdent {
-    fn ident(&self) -> Ident {
+    pub fn ident(&self) -> Ident {
         let inner = unsafe {
             self.unwrap().__bindgen_anon_1.ident
         };
@@ -323,7 +335,7 @@ impl fmt::Debug for ExprIdent {
 }
 
 impl ExprIf {
-    fn cond(&self) -> AnyExpr {
+    pub fn cond(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -333,7 +345,7 @@ impl ExprIf {
         AnyExpr { inner }
     }
 
-    fn then_expr(&self) -> AnyExpr {
+    pub fn then_expr(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -345,7 +357,7 @@ impl ExprIf {
         AnyExpr { inner }
     }
 
-    fn else_expr(&self) -> AnyExpr {
+    pub fn else_expr(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -367,7 +379,7 @@ impl fmt::Debug for ExprIf {
     }
 }
 
-enum IfCase {
+pub enum IfCase {
     OnVal(AnyLiteral, AnyExpr),
     Else(AnyExpr)
 }
@@ -388,7 +400,7 @@ impl fmt::Debug for IfCase {
 }
 
 impl ExprIfCase {
-    fn cond(&self) -> AnyExpr {
+    pub fn cond(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -398,7 +410,7 @@ impl ExprIfCase {
         AnyExpr { inner }
     }
 
-    fn cases(&self) -> impl Iterator<Item=IfCase> {
+    pub fn cases(&self) -> impl Iterator<Item=IfCase> {
         let cases = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -438,11 +450,11 @@ impl ExprEntype {
         AnyExpr { inner }
     }
 
-    fn target(&self) -> Ident {
+    pub fn target(&self) -> Ident {
         self.target_expr().unwrap_ident()
     }
 
-    fn ty(&self) -> AnyExpr {
+    pub fn ty(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -472,11 +484,11 @@ impl ExprVarDecl {
         AnyExpr { inner }
     }
 
-    fn name(&self) -> Ident {
+    pub fn name(&self) -> Ident {
         self.name_expr().unwrap_ident()
     }
 
-    fn val(&self) -> AnyExpr {
+    pub fn val(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -510,12 +522,12 @@ impl ExprFnDecl {
         }
     }
 
-    fn name(&self) -> Option<Ident> {
+    pub fn name(&self) -> Option<Ident> {
         self.name_expr()
             .map(|e| e.unwrap_ident())
     }
 
-    fn val(&self) -> AnyExpr {
+    pub fn val(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -525,7 +537,7 @@ impl ExprFnDecl {
         AnyExpr { inner }
     }
 
-    fn args(&self) -> impl Iterator<Item=Ident> {
+    pub fn args(&self) -> impl Iterator<Item=Ident> {
         let args = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -539,7 +551,7 @@ impl ExprFnDecl {
             .map(|e| e.unwrap_ident())
     }
 
-    fn pure(&self) -> bool {
+    pub fn pure(&self) -> bool {
         unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -569,7 +581,7 @@ impl fmt::Debug for ExprFnDecl {
 }
 
 impl ExprFnCall {
-    fn callee(&self) -> AnyExpr {
+    pub fn callee(&self) -> AnyExpr {
         let inner = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -579,7 +591,7 @@ impl ExprFnCall {
         AnyExpr { inner }
     }
 
-    fn args(&self) -> impl Iterator<Item=AnyExpr> {
+    pub fn args(&self) -> impl Iterator<Item=AnyExpr> {
         let args = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
@@ -590,7 +602,7 @@ impl ExprFnCall {
             .map(|n| AnyExpr { inner: n.head })
     }
 
-    fn pure(&self) -> bool {
+    pub fn pure(&self) -> bool {
         unsafe {
             self.unwrap()
                 .__bindgen_anon_1

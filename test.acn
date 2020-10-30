@@ -1,4 +1,4 @@
-f ~ Fn(Int)(Int)
+f ~ Fn((Int) -> Int)
 f(x) :=
     a + b
 
@@ -8,7 +8,7 @@ f(x) :=
 #        .tail := List(ty),
 #    )
 
-cons ~ \(T) := Fn(T, List(T))(List(T))
+cons ~ \(T) := Fn((T, List(T)) -> List(T))
 #cons(head, tail) :=
 #    struct (
 #        .head := head,
@@ -17,14 +17,14 @@ cons ~ \(T) := Fn(T, List(T))(List(T))
 
 cons_int := impl_cons(int)
 
-f(x) :=
+g(x) :=
     if
         if a then b else c
     then b
     else if x then y
     else c
 
-f(x) :=
+h(x) :=
     if a then g(x)
     else if a is (
         1 then h(x),

@@ -1,5 +1,4 @@
 use std::ptr;
-use std::ffi::CStr;
 
 use crate::ast::{Ast};
 
@@ -26,10 +25,4 @@ pub fn parse_stdin() -> Result<Ast, Error> {
     } else {
         Err(Error::ParseError)
     }
-}
-
-unsafe fn c_str<'a>(ptr: *const i8) -> &'a str {
-    CStr::from_ptr(ptr)
-        .to_str()
-        .expect("UTF-8 error decoding C string")
 }

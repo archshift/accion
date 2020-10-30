@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 smallvec = "1.4"
+dynstack = { git="https://github.com/archshift/dynstack", rev="7bba8e808b907c6a0d70e648fb0bc5672cf87c22" }
 
 [build-dependencies]
 bindgen = "0.55"
