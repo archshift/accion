@@ -7,6 +7,10 @@ edition = "2018"
 [dependencies]
 smallvec = "1.4"
 dynstack = { git="https://github.com/archshift/dynstack", rev="7bba8e808b907c6a0d70e648fb0bc5672cf87c22" }
+derive-newtype = "0.2"
+disjoint-sets = "0.4"
+num-traits = "0.2"
+num-derive = "0.2"
 
 [build-dependencies]
 bindgen = "0.55"

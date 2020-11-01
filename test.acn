@@ -1,4 +1,4 @@
-f ~ Fn((Int) -> Int)
+f ~ Fn(Int -> Int)
 f(x) :=
     a + b
 
@@ -8,7 +8,7 @@ f(x) :=
 #        .tail := List(ty),
 #    )
 
-cons ~ \(T) := Fn((T, List(T)) -> List(T))
+cons ~ \(T) := Fn(T -> List(T) -> List(T))
 #cons(head, tail) :=
 #    struct (
 #        .head := head,

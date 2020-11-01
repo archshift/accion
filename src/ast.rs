@@ -5,6 +5,9 @@ use crate::parser::raw;
 use crate::lliter::adapt_ll;
 use crate::sexp::SExp;
 
+use num_traits::cast::FromPrimitive;
+use num_derive::FromPrimitive;
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AstNodeId(usize);
 
@@ -65,6 +68,11 @@ impl Ast {
         
         unsafe { adapt_ll(program.exprs.as_ref(), |e| e.tail.as_ref()) }
             .map(|n| AnyExpr { inner: n.head })
+    }
+}
+impl Clone for Ast {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner }
     }
 }
 impl fmt::Debug for Ast {
@@ -240,14 +248,35 @@ impl fmt::Debug for Expr {
     }
 }
 
+#[repr(u32)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug, FromPrimitive)]
+pub enum UnaryOp {
+    Head = raw::ast_operator_AST_OP_HEAD,
+    Tail = raw::ast_operator_AST_OP_TAIL,
+    Negate = raw::ast_operator_AST_OP_NEGATE,
+}
+
+#[repr(u32)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug, FromPrimitive)]
+pub enum BinaryOp {
+    Add = raw::ast_operator_AST_OP_ADD,
+    Sub = raw::ast_operator_AST_OP_SUB,
+    Mul = raw::ast_operator_AST_OP_MUL,
+    Div = raw::ast_operator_AST_OP_DIV,
+    Mod = raw::ast_operator_AST_OP_MOD,
+    Prepend = raw::ast_operator_AST_OP_PREPEND,
+    LastUnit = raw::ast_operator_AST_OP_COMPOUND,
+}
+
 impl ExprUnary {
-    pub fn operator(&self) -> raw::ast_operator {
-        unsafe {
+    pub fn operator(&self) -> UnaryOp {
+        let raw_op = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
                 .__bindgen_anon_1
                 .op
-        }
+        };
+        UnaryOp::from_u32(raw_op).unwrap()
     }
 
     pub fn operand(&self) -> AnyExpr {
@@ -271,13 +300,14 @@ impl fmt::Debug for ExprUnary {
 }
 
 impl ExprBinary {
-    pub fn operator(&self) -> raw::ast_operator {
-        unsafe {
+    pub fn operator(&self) -> BinaryOp {
+        let raw_op = unsafe {
             self.unwrap()
                 .__bindgen_anon_1
                 .__bindgen_anon_1
                 .op
-        }
+        };
+        BinaryOp::from_u32(raw_op).unwrap()
     }
 
     pub fn operands(&self) -> (AnyExpr, AnyExpr) {
