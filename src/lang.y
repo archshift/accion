@@ -50,6 +50,7 @@
     COMMA ","
     SEMI ";"
     TILDE "~"
+    EQ "=="
     USTAR
     UMINUS
     COMPOUND
@@ -65,6 +66,7 @@
 %right COMPOUND
 %right ELSE
 %right ASSIGN
+%nonassoc EQ
 %right ARROW
 %left PLUS MINUS
 %left STAR DIV MOD
@@ -117,6 +119,7 @@ expr
     | expr "/" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_DIV, .right = $3 }); }
     | expr "%" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_MOD, .right = $3 }); }
     | expr "->" expr                        { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_PREPEND, .right = $3 }); }
+    | expr "==" expr                        { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_EQ, .right = $3 }); }
     | "-" expr                              { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_NEGATE, .inner = $2 }); } %prec UMINUS
     | "*" expr                              { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_HEAD, .inner = $2 }); } %prec USTAR
     | expr "->" "..."                       { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_TAIL, .inner = $1 }); }

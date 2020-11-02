@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
 
-use crate::ast::{self, AstNode};
+use crate::ast::{self, AstNodeWrap};
+use crate::builtins::BuiltinMap;
 use dynstack::{DynStack, dyn_push};
 use smallvec::SmallVec;
 use derive_newtype::NewType;
@@ -32,8 +34,14 @@ impl Scope {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub struct ScopeId(usize);
+impl fmt::Debug for ScopeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ScopeId({})", self.0)
+    }
+}
+
 pub type NodeScopes = HashMap<ast::AstNodeId, ScopeId>;
 type DeclsOut = SmallVec<[Declaration; 1]>;
 
@@ -64,6 +72,7 @@ struct ScopingCtx {
     node_scopes: NodeScopes,
     added_nodes: NodeStack,
     scope: ScopeId,
+    builtins: BuiltinMap,
 }
 
 impl ScopingCtx {
@@ -85,6 +94,7 @@ impl ScopingCtx {
 pub struct Scopes {
     scopes: Vec<Scope>,
     node_scopes: NodeScopes,
+    pub builtins: BuiltinMap,
     pub node_count: usize,
 }
 
@@ -107,12 +117,13 @@ impl Scopes {
     }
 }
 
-pub fn analyze(root: &ast::Ast) -> Scopes {
+pub fn analyze(root: &ast::Ast, builtins: BuiltinMap) -> Scopes {
     let mut ctx = ScopingCtx {
         scopes: Vec::new(),
         node_scopes: NodeScopes::new(),
         added_nodes: NodeStack::new(),
-        scope: ScopeId(!0)
+        scope: ScopeId(!0),
+        builtins,
     };
 
     let mut s = NodeStack::new();
@@ -129,9 +140,12 @@ pub fn analyze(root: &ast::Ast) -> Scopes {
         
         for decl in node.declaration(&mut ctx) {
             let scope = &mut ctx.scopes[decl.scope.0];
+            if ctx.builtins.contains_key(&decl.name) {
+                panic!("Cannot shadow builtin function with decl {:?}!", decl.name);
+            }
             if scope.decls.contains_key(&decl.name) {
                 panic!("Cannot reassign ident in the same scope! Previous decl: {:?}; new decl: {:?}",
-                scope.decls[&decl.name], &decl);
+                    scope.decls[&decl.name], &decl);
             }
             scope.decls.insert(decl.name.clone(), decl);
         }
@@ -143,11 +157,12 @@ pub fn analyze(root: &ast::Ast) -> Scopes {
     Scopes {
         scopes: ctx.scopes,
         node_scopes: ctx.node_scopes,
+        builtins: ctx.builtins,
         node_count: count, // TODO: this doesn't really belong here
     }
 }
 
-trait Scoping : ast::AstNode {
+trait Scoping : ast::AstNodeWrap {
     fn analyze_scope(&self, ctx: &mut ScopingCtx);
     fn declaration(&self, _ctx: &mut ScopingCtx) -> DeclsOut {
         DeclsOut::new()

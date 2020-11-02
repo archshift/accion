@@ -46,6 +46,7 @@ enum ast_operator {
     AST_OP_HEAD,
     AST_OP_TAIL,
     AST_OP_COMPOUND,
+    AST_OP_EQ,
 };
 
 typedef struct ast_expr_s {

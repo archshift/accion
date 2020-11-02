@@ -22,7 +22,7 @@
                                                 .name = strdup(yytext)
                                             });
                                             return IDENT; }
-[1-9][0-9]*                             {   yylval->lit = NEW(ast_literal, {
+[0-9]+                                  {   yylval->lit = NEW(ast_literal, {
                                                 .ty = AST_LITERAL_INT,
                                                 .num = strtoull(yytext, NULL, 10),
                                             });
@@ -56,6 +56,7 @@
 "..."                                   { return ELLIPSIS; }
 ","                                     { return COMMA; }
 ";"                                     { return SEMI; }
+"=="                                    { return EQ; }
 
-#[^n]*\n                                {}
+#[^\n]*\n                                {}
 [ \n\t]                                 {}

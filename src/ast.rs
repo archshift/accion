@@ -8,11 +8,17 @@ use crate::sexp::SExp;
 use num_traits::cast::FromPrimitive;
 use num_derive::FromPrimitive;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AstNodeId(usize);
+impl fmt::Debug for AstNodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AstNodeId({})", self.0)
+    }
+}
 
-pub trait AstNode : fmt::Debug {
+pub trait AstNodeWrap : fmt::Debug {
     fn node_id(&self) -> AstNodeId;
+    fn as_any(self) -> AstNode;
 }
 
 macro_rules! wrap {
@@ -22,12 +28,14 @@ macro_rules! wrap {
             inner: *const $raw_node,
         }
 
-        impl AstNode for $node {
+        impl AstNodeWrap for $node {
             fn node_id(&self) -> AstNodeId {
                 AstNodeId(self.inner as usize)
             }
+            fn as_any(self) -> AstNode {
+                AstNode::$node(self)
+            }
         }
-
         impl $node {
             #[allow(dead_code)]
             pub(crate) fn wrap(ptr: *const $raw_node) -> Self {
@@ -60,6 +68,25 @@ wrap!(AnyLiteral, raw::ast_literal);
 wrap!(LiteralInt, raw::ast_literal);
 wrap!(LiteralString, raw::ast_literal);
 
+pub enum AstNode {
+    Ast(Ast),
+    AnyExpr(AnyExpr),
+    ExprUnary(ExprUnary),
+    ExprBinary(ExprBinary),
+    ExprIdent(ExprIdent),
+    ExprLiteral(ExprLiteral),
+    ExprIf(ExprIf),
+    ExprIfCase(ExprIfCase),
+    ExprVarDecl(ExprVarDecl),
+    ExprFnDecl(ExprFnDecl),
+    ExprEntype(ExprEntype),
+    ExprFnCall(ExprFnCall),
+    ExprCurry(ExprCurry),
+    Ident(Ident),
+    AnyLiteral(AnyLiteral),
+    LiteralInt(LiteralInt),
+    LiteralString(LiteralString),
+}
 
 
 impl Ast {
@@ -266,6 +293,7 @@ pub enum BinaryOp {
     Mod = raw::ast_operator_AST_OP_MOD,
     Prepend = raw::ast_operator_AST_OP_PREPEND,
     LastUnit = raw::ast_operator_AST_OP_COMPOUND,
+    Eq = raw::ast_operator_AST_OP_EQ,
 }
 
 impl ExprUnary {

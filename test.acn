@@ -1,4 +1,4 @@
-f ~ Fn(Int -> Int)
+#f ~ Fn(Int -> Int)
 f(x) :=
     a + b
 
@@ -8,39 +8,54 @@ f(x) :=
 #        .tail := List(ty),
 #    )
 
-cons ~ \(T) := Fn(T -> List(T) -> List(T))
+#cons ~ \(T) := Fn(T -> List(T) -> List(T))
 #cons(head, tail) :=
 #    struct (
 #        .head := head,
 #        .tail := tail
 #    )
 
-cons_int := impl_cons(int)
+#cons_int := impl_cons(int)
 
 g(x) :=
     if
-        if a then b else c
+        if a == 1 then b(x) == 1 else c(x) == 4
     then b
-    else if x then y
+    else if x then b
     else c
 
+a := 1
+
+b(x) := x
+c(x) := 2*x
+
 h(x) :=
-    if a then g(x)
+    if a == 0 then g(x)(1)
     else if a is (
         1 then h(x),
         2 then b(x),
         3 then a(x),
-        else unreachable
+        else 5
     )
 
-map(what, iter) :=
-    what(*iter) -> map(what, iter->...)
+map(fn, iter) :=
+    if iter == nil then
+        nil
+    else
+        fn(*iter) -> map(fn, iter->...)
+
+reduce(fn, acc, iter) :=
+    if iter == nil then
+        acc
+    else
+        let new_acc := fn(acc, *iter);
+        reduce(fn, new_acc, iter->...)
 
 print!(args) :=
-    let strjoin :=
+    let strjoin(list) :=
         reduce(
             \(acc, s) := acc -> s,
             "",
-            ...
+            list
         );
-    syscall!(SYS_PRINT, strjoin(args))
+    syscall2!(0, strjoin(args))
