@@ -2,11 +2,9 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::ast::{self, AstNodeWrap};
-use crate::scoping::Scopes;
+use crate::analysis::{preorder, Visitor, scoping::Scopes};
 use crate::disjoint_set::DisjointSet;
 use smallvec::SmallVec;
-use dynstack::{DynStack, dyn_push};
-use derive_newtype::NewType;
 
 pub type FnArgTypes = SmallVec<[TypeId; 4]>;
 
@@ -67,28 +65,6 @@ impl fmt::Debug for TypeId {
 
 type NodeTypes = HashMap<ast::AstNodeId, TypeId>;
 type TypesEq = DisjointSet<TypeId>;
-
-#[derive(NewType)]
-struct NodeStack(DynStack<dyn Typing>);
-impl NodeStack {
-    fn new() -> Self {
-        Self(DynStack::new())
-    }
-    
-    fn push<N: 'static + Typing>(&mut self, node: N) {
-        let node: N = node;
-        dyn_push!(**self, node);
-    }
-
-    fn move_from(&mut self, other: &mut Self) {
-        for node in other.iter_mut() {
-            unsafe {
-                (**self).push(node);
-            }
-        }
-        while other.forget_last() {}
-    }
-}
 
 pub struct TypeStore {
     types: Vec<Type>,
@@ -225,14 +201,13 @@ impl fmt::Debug for TypeStore {
     }
 }
 
-struct TypingCtx<'a> {
+struct TypeAnalysis<'a> {
     scopes: &'a Scopes,
     types: TypeStore,
     node_types: NodeTypes,
-    added_nodes: NodeStack,
 }
 
-impl<'a> TypingCtx<'a> {
+impl<'a> TypeAnalysis<'a> {
     fn type_node(&mut self, node_id: ast::AstNodeId, ty: TypeId) {
         if let Some(old) = self.node_types.insert(node_id, ty) {
             let new_type = self.types.join(old, ty)
@@ -249,9 +224,6 @@ impl<'a> TypingCtx<'a> {
         for node in nodes {
             self.type_node(*node, type_var);
         }
-    }
-    fn enqueue<N: 'static + Typing>(&mut self, node: N) {
-        self.added_nodes.push(node);
     }
 }
 
@@ -328,24 +300,15 @@ fn reduce_types(types: &mut TypeStore) {
 }
 
 pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
-    let mut ctx = TypingCtx {
+    let mut ctx = TypeAnalysis {
         scopes,
         types,
         node_types: NodeTypes::new(),
-        added_nodes: NodeStack::new(),
     };
     
-    let mut s = NodeStack::new();
-
-    ctx.enqueue(root.clone());
-    s.move_from(&mut ctx.added_nodes);
-
-    while let Some(node) = s.peek() {
-        node.analyze_type(&mut ctx);
-        s.remove_last();
-
-        s.move_from(&mut ctx.added_nodes);
-    }
+    preorder(root.clone(), |node| {
+        ctx.visit_node(node);
+    });
 
     reduce_types(&mut ctx.types);
 
@@ -362,270 +325,218 @@ const ANY_CURRY: Type = Type::new(BaseType::Curry);
 const PURE_META: Type = Type { base: BaseType::Type, purity: Purity::Pure };
 
 trait Typing : ast::AstNodeWrap {
-    fn analyze_type(&self, ctx: &mut TypingCtx);
+    fn analyze_type(&self, ctx: &mut TypeAnalysis);
 }
 
-impl Typing for ast::Ast {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        for decl in self.decls() {
-            ctx.enqueue(decl);
-        }
-    }
-}
-
-impl Typing for ast::AnyExpr {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        match self.select() {
-            ast::Expr::Binary(e) => e.analyze_type(ctx),
-            ast::Expr::Unary(e) => e.analyze_type(ctx),
-            ast::Expr::FnCall(e) => e.analyze_type(ctx),
-            ast::Expr::If(e) => e.analyze_type(ctx),
-            ast::Expr::IfCase(e) => e.analyze_type(ctx),
-            ast::Expr::Entype(e) => e.analyze_type(ctx),
-            ast::Expr::VarDecl(e) => e.analyze_type(ctx),
-            ast::Expr::FnDecl(e) => e.analyze_type(ctx),
-            ast::Expr::Literal(e) => e.analyze_type(ctx),
-            ast::Expr::Ident(e) => e.analyze_type(ctx),
-            ast::Expr::Curry(e) => e.analyze_type(ctx),
-        }
-    }
-}
-impl Typing for ast::ExprEntype {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let meta_id = ctx.types.add(PURE_META);
-        let target = self.target();
-        let ty = self.ty();
+impl Visitor for TypeAnalysis<'_> {
+    fn visit_expr_entype(&mut self, node: &ast::ExprEntype) {
+        let meta_id = self.types.add(PURE_META);
+        let target = node.target();
+        let ty = node.ty();
 
         let name = target.name();
-        let scope = ctx.scopes.node_scope(self.node_id()).unwrap();
+        let scope = self.scopes.node_scope(node.node_id()).unwrap();
         let decl = scope.resolve(name);
         if decl.is_none() {
             panic!("Error: could not find ident `{}` in scope", name);
         }
         let decl = decl.unwrap();
 
-        ctx.type_node(self.node_id(), meta_id);
-        ctx.type_node(ty.node_id(), meta_id);
+        self.type_node(node.node_id(), meta_id);
+        self.type_node(ty.node_id(), meta_id);
 
         let type_expr = Type { base: BaseType::TypeExpr(ty.node_id()), purity: Purity::Pure };
-        let type_expr_id = ctx.types.add(type_expr);
-        ctx.type_node(decl.node_id, type_expr_id);
+        let type_expr_id = self.types.add(type_expr);
+        self.type_node(decl.node_id, type_expr_id);
+    }
 
-        ctx.enqueue(ty);
+    fn visit_expr_literal(&mut self, node: &ast::ExprLiteral) {
+        let lit = node.literal();
+        self.equate_nodes(&[node.node_id(), lit.node_id()]);
     }
-}
-impl Typing for ast::ExprLiteral {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let lit = self.literal();
-        ctx.equate_nodes(&[self.node_id(), lit.node_id()]);
-        ctx.enqueue(lit);
-    }
-}
-impl Typing for ast::ExprIdent {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let ident = self.ident();
+
+    fn visit_expr_ident(&mut self, node: &ast::ExprIdent) {
+        let ident = node.ident();
         let name = ident.name();
         
         if name == "nil" {
-            let type_var = ctx.types.add_typevar();
+            let type_var = self.types.add_typevar();
             let generic_list = Type::new(BaseType::List(type_var));
-            let generic_list_id = ctx.types.add(generic_list);
-            ctx.type_node(self.node_id(), generic_list_id);
+            let generic_list_id = self.types.add(generic_list);
+            self.type_node(node.node_id(), generic_list_id);
             return;
         }
-        if let Some(builtin) = ctx.scopes.builtins.get(name) {
-            ctx.type_node(self.node_id(), builtin.ty);
+        if let Some(builtin) = self.scopes.builtins.get(name) {
+            self.type_node(node.node_id(), builtin.ty);
             return;
         }
         
-        let scope = ctx.scopes.node_scope(self.node_id()).unwrap();
+        let scope = self.scopes.node_scope(node.node_id()).unwrap();
         
-        let decl = ctx.scopes.resolve(scope, name);
+        let decl = self.scopes.resolve(scope, name);
         if decl.is_none() {
             panic!("Error: referenced unknown ident `{}`", name);
         }
         let decl = decl.unwrap();
         
-        ctx.equate_nodes(&[self.node_id(), decl.node_id]);
+        self.equate_nodes(&[node.node_id(), decl.node_id]);
     }
-}
-impl Typing for ast::ExprIf {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let bool_id = ctx.types.add(ANY_BOOL);
 
-        let cond = self.cond();
+    fn visit_expr_if(&mut self, node: &ast::ExprIf) {
+        let bool_id = self.types.add(ANY_BOOL);
+
+        let cond = node.cond();
         // Pre-select a type for the cond expression
-        ctx.type_node(cond.node_id(), bool_id);
-        ctx.enqueue(cond);
+        self.type_node(cond.node_id(), bool_id);
 
-        let then_expr = self.then_expr();
-        let else_expr = self.else_expr();
-        ctx.equate_nodes(&[self.node_id(), then_expr.node_id(), else_expr.node_id()]);
-        ctx.enqueue(then_expr);
-        ctx.enqueue(else_expr);
+        let then_expr = node.then_expr();
+        let else_expr = node.else_expr();
+        self.equate_nodes(&[node.node_id(), then_expr.node_id(), else_expr.node_id()]);
     }
-}
-impl Typing for ast::ExprIfCase {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let cond = self.cond();
+
+    fn visit_expr_if_case(&mut self, node: &ast::ExprIfCase) {
+        let cond = node.cond();
         let mut cond_ty_nodes = SmallVec::<[ast::AstNodeId; 4]>::new();
         let mut val_ty_nodes = SmallVec::<[ast::AstNodeId; 4]>::new();
 
         cond_ty_nodes.push(cond.node_id());
-        ctx.enqueue(cond);
         
-        for case in self.cases() {
+        for case in node.cases() {
             match case {
                 ast::IfCase::OnVal(lit, val) => {
                     cond_ty_nodes.push(lit.node_id());
                     val_ty_nodes.push(val.node_id());
-                    ctx.enqueue(lit);
-                    ctx.enqueue(val);
                 }
                 ast::IfCase::Else(val) => {
                     val_ty_nodes.push(val.node_id());
-                    ctx.enqueue(val);
                 }
             }
         }
         
-        ctx.equate_nodes(&cond_ty_nodes);
-        ctx.equate_nodes(&val_ty_nodes);
+        self.equate_nodes(&cond_ty_nodes);
+        self.equate_nodes(&val_ty_nodes);
     }
-}
-impl Typing for ast::ExprVarDecl {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let val = self.val();
-        ctx.equate_nodes(&[self.node_id(), val.node_id()]);
-        ctx.enqueue(val);
+
+    fn visit_expr_var_decl(&mut self, node: &ast::ExprVarDecl) {
+        let val = node.val();
+        self.equate_nodes(&[node.node_id(), val.node_id()]);
     }
-}
-impl Typing for ast::ExprFnDecl {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let name = self.name();
-        let val = self.val();
+
+    fn visit_expr_fn_decl(&mut self, node: &ast::ExprFnDecl) {
+        let name = node.name();
+        let val = node.val();
 
         let mut arg_types = FnArgTypes::new();
-        for arg in self.args() {
-            let type_var = ctx.types.add_typevar();
-            ctx.type_node(arg.node_id(), type_var);
+        for arg in node.args() {
+            let type_var = self.types.add_typevar();
+            self.type_node(arg.node_id(), type_var);
             arg_types.push(type_var);            
         }
-        let ret_type = ctx.types.add_typevar();
-        ctx.type_node(val.node_id(), ret_type);
+        let ret_type = self.types.add_typevar();
+        self.type_node(val.node_id(), ret_type);
         
         let fn_type = Type {
             base: BaseType::Fn(arg_types, ret_type),
-            purity: if self.pure() { Purity::Pure } else { Purity::Impure }
+            purity: if node.pure() { Purity::Pure } else { Purity::Impure }
         };
-        let fn_type_id = ctx.types.add(fn_type);
-        ctx.type_node(self.node_id(), fn_type_id);
+        let fn_type_id = self.types.add(fn_type);
+        self.type_node(node.node_id(), fn_type_id);
         if let Some(name) = name {
-            ctx.type_node(name.node_id(), fn_type_id);
+            self.type_node(name.node_id(), fn_type_id);
         }
-        ctx.enqueue(self.val());
     }
-}
-impl Typing for ast::ExprCurry {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let curry_id = ctx.types.add(ANY_CURRY);
-        ctx.type_node(self.node_id(), curry_id);
+
+    fn visit_expr_curry(&mut self, node: &ast::ExprCurry) {
+        let curry_id = self.types.add(ANY_CURRY);
+        self.type_node(node.node_id(), curry_id);
     }
-}
-impl Typing for ast::ExprUnary {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let inner = self.operand();
-        match self.operator() {
+
+    fn visit_expr_unary(&mut self, node: &ast::ExprUnary) {
+        let inner = node.operand();
+        match node.operator() {
             | ast::UnaryOp::Negate => {
-                let int_id = ctx.types.add(ANY_INT);
-                ctx.type_node(self.node_id(), int_id);
-                ctx.type_node(inner.node_id(), int_id);
+                let int_id = self.types.add(ANY_INT);
+                self.type_node(node.node_id(), int_id);
+                self.type_node(inner.node_id(), int_id);
             }
             | ast::UnaryOp::Head => {
-                let type_var = ctx.types.add_typevar();
+                let type_var = self.types.add_typevar();
                 let type_var_list = Type::new(BaseType::List(type_var));
-                let type_var_list_id = ctx.types.add(type_var_list);
-                ctx.type_node(self.node_id(), type_var);
-                ctx.type_node(inner.node_id(), type_var_list_id);
+                let type_var_list_id = self.types.add(type_var_list);
+                self.type_node(node.node_id(), type_var);
+                self.type_node(inner.node_id(), type_var_list_id);
             }
             | ast::UnaryOp::Tail => {
-                let type_var = ctx.types.add_typevar();
+                let type_var = self.types.add_typevar();
                 let type_var_list = Type::new(BaseType::List(type_var));
-                let type_var_list_id = ctx.types.add(type_var_list);
-                ctx.type_node(self.node_id(), type_var_list_id);
-                ctx.type_node(inner.node_id(), type_var_list_id);
+                let type_var_list_id = self.types.add(type_var_list);
+                self.type_node(node.node_id(), type_var_list_id);
+                self.type_node(inner.node_id(), type_var_list_id);
             }
         }
-        ctx.enqueue(inner);
     }
-}
-impl Typing for ast::ExprBinary {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let (left, right) = self.operands();
-        match self.operator() {
+
+    fn visit_expr_binary(&mut self, node: &ast::ExprBinary) {
+        let (left, right) = node.operands();
+        match node.operator() {
             | ast::BinaryOp::Add
             | ast::BinaryOp::Sub
             | ast::BinaryOp::Mul
             | ast::BinaryOp::Div
             | ast::BinaryOp::Mod
             => {
-                let int_id = ctx.types.add(ANY_INT);
-                ctx.type_node(self.node_id(), int_id);
-                ctx.type_node(left.node_id(), int_id);
-                ctx.type_node(right.node_id(), int_id);
+                let int_id = self.types.add(ANY_INT);
+                self.type_node(node.node_id(), int_id);
+                self.type_node(left.node_id(), int_id);
+                self.type_node(right.node_id(), int_id);
             }
             | ast::BinaryOp::Prepend => {
-                let type_var = ctx.types.add_typevar();
+                let type_var = self.types.add_typevar();
                 let type_var_list = Type::new(BaseType::List(type_var));
-                let type_var_list_id = ctx.types.add(type_var_list);
-                ctx.type_node(left.node_id(), type_var);
-                ctx.type_node(right.node_id(), type_var_list_id);
+                let type_var_list_id = self.types.add(type_var_list);
+                self.type_node(left.node_id(), type_var);
+                self.type_node(right.node_id(), type_var_list_id);
             }
             | ast::BinaryOp::Eq
             => {
-                let bool_id = ctx.types.add(ANY_BOOL);
-                ctx.type_node(self.node_id(), bool_id);
-                ctx.equate_nodes(&[left.node_id(), right.node_id()]);
+                let bool_id = self.types.add(ANY_BOOL);
+                self.type_node(node.node_id(), bool_id);
+                self.equate_nodes(&[left.node_id(), right.node_id()]);
             }
             | ast::BinaryOp::LastUnit =>
-                ctx.equate_nodes(&[self.node_id(), right.node_id()])
+                self.equate_nodes(&[node.node_id(), right.node_id()])
         }
-        ctx.enqueue(left);
-        ctx.enqueue(right);
     }
-}
-impl Typing for ast::ExprFnCall {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let callee = self.callee();
+
+    fn visit_expr_fn_call(&mut self, node: &ast::ExprFnCall) {
+        let callee = node.callee();
         
         let mut arg_types = FnArgTypes::new();
-        for arg in self.args() {
-            let type_var = ctx.types.add_typevar();
-            ctx.type_node(arg.node_id(), type_var);
+        for arg in node.args() {
+            let type_var = self.types.add_typevar();
+            self.type_node(arg.node_id(), type_var);
             arg_types.push(type_var);
             
-            ctx.enqueue(arg);
         }
-        let ret_type = ctx.types.add_typevar();
+        let ret_type = self.types.add_typevar();
 
         let fn_type = Type {
             base: BaseType::Fn(arg_types, ret_type),
-            purity: if self.pure() { Purity::Pure } else { Purity::Impure }
+            purity: if node.pure() { Purity::Pure } else { Purity::Impure }
         };
-        let fn_type_id = ctx.types.add(fn_type);
-        ctx.type_node(callee.node_id(), fn_type_id);
-
-        ctx.enqueue(callee);
+        let fn_type_id = self.types.add(fn_type);
+        self.type_node(callee.node_id(), fn_type_id);
     }
-}
 
-impl Typing for ast::AnyLiteral {
-    fn analyze_type(&self, ctx: &mut TypingCtx) {
-        let ty = match self.select() {
-            ast::Literal::Int(_) => ANY_INT,
-            ast::Literal::String(_) => ANY_STRING,
-        };
-        let ty_id = ctx.types.add(ty);
-        ctx.type_node(self.node_id(), ty_id);
+    fn visit_literal_int(&mut self, node: &ast::LiteralInt) {
+        let ty_id = self.types.add(ANY_INT);
+        self.type_node(node.node_id(), ty_id);
     }
+
+    fn visit_literal_str(&mut self, node: &ast::LiteralString) {
+        let ty_id = self.types.add(ANY_STRING);
+        self.type_node(node.node_id(), ty_id);
+    }
+
+    fn visit_ident(&mut self, _: &ast::Ident) { }
 }

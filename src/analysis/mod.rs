@@ -46,6 +46,28 @@ trait Visitor {
     fn visit_literal_str(&mut self, node: &ast::LiteralString);
     fn visit_literal_int(&mut self, node: &ast::LiteralInt);
     fn visit_ident(&mut self, node: &ast::Ident);
+
+    fn visit_node(&mut self, node: &ast::AstNode) {
+        match node {
+            ast::AstNode::Ast(n) => self.visit_ast(n),
+            ast::AstNode::AnyExpr(n) => self.visit_expr(n),
+            ast::AstNode::ExprUnary(n) => self.visit_expr_unary(n),
+            ast::AstNode::ExprBinary(n) => self.visit_expr_binary(n),
+            ast::AstNode::ExprIdent(n) => self.visit_expr_ident(n),
+            ast::AstNode::ExprLiteral(n) => self.visit_expr_literal(n),
+            ast::AstNode::ExprIf(n) => self.visit_expr_if(n),
+            ast::AstNode::ExprIfCase(n) => self.visit_expr_if_case(n),
+            ast::AstNode::ExprVarDecl(n) => self.visit_expr_var_decl(n),
+            ast::AstNode::ExprFnDecl(n) => self.visit_expr_fn_decl(n),
+            ast::AstNode::ExprEntype(n) => self.visit_expr_entype(n),
+            ast::AstNode::ExprFnCall(n) => self.visit_expr_fn_call(n),
+            ast::AstNode::ExprCurry(n) => self.visit_expr_curry(n),
+            ast::AstNode::Ident(n) => self.visit_ident(n),
+            ast::AstNode::AnyLiteral(n) => self.visit_literal(n),
+            ast::AstNode::LiteralInt(n) => self.visit_literal_int(n),
+            ast::AstNode::LiteralString(n) => self.visit_literal_str(n),
+        }
+    }
 }
 
 pub fn preorder(ast: ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
