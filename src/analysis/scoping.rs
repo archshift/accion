@@ -286,7 +286,7 @@ impl Scoping for ast::ExprFnDecl {
                 name: name.name().to_owned(),
                 scope: ctx.scope,
                 node_id: name.node_id(),
-                impure_fn: self.pure(),
+                impure_fn: !self.pure(),
             });
         }
         
@@ -295,7 +295,7 @@ impl Scoping for ast::ExprFnDecl {
             out.push(Declaration {
                 name: arg.name().to_owned(),
                 scope: body_scope,
-                node_id: self.node_id(),
+                node_id: arg.node_id(),
                 impure_fn: false,
             });
         }

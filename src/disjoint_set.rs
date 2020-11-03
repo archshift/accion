@@ -40,7 +40,7 @@ impl<T: Hash + Eq + Clone> DisjointSet<T> {
         self.inner.union(first_id, second_id);
     }
 
-    pub fn groups(&self) -> Vec<Vec<&T>> {
+    pub fn groups(&self) -> Vec<Vec<T>> {
         let idx_grps = self.inner.to_vec();
         let idx_grps = &idx_grps[..self.id_map.len()];
 
@@ -54,9 +54,9 @@ impl<T: Hash + Eq + Clone> DisjointSet<T> {
             let mut all_out = Vec::new();
             for grp in grps {
                 if grp.len() != 0 {
-                    let mut out = Vec::<&T>::new();
+                    let mut out = Vec::<T>::new();
                     for idx in grp {
-                        out.push(&self.vals[idx]);
+                        out.push(self.vals[idx].clone());
                     }
                     all_out.push(out);
                 }
@@ -73,11 +73,9 @@ impl<T: Hash + Eq + Clone + fmt::Debug> fmt::Debug for DisjointSet<T> {
         use std::collections::HashSet;
         use std::iter::FromIterator;
 
-        let grps = self.inner.to_vec();
-        let grps = &grps[..self.id_map.len()];
         let mut tup = f.debug_tuple("DisjointSet");
         for grp in self.groups() {
-            let grp_set = HashSet::<&&T>::from_iter(grp.iter());
+            let grp_set = HashSet::<&T>::from_iter(grp.iter());
             tup.field(&grp_set);
         }
         tup.finish()

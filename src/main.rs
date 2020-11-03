@@ -10,7 +10,6 @@ use crate::analysis::{scoping, typing};
 
 fn main() {
     let res = parser::parse_stdin();
-    println!("{:?}", res.as_ref().unwrap());
     if let Ok(ast) = res {
         let mut types = typing::TypeStore::new();
         let builtins = builtins::make_builtins(&mut types);
@@ -18,5 +17,11 @@ fn main() {
         println!("{:#?}", scopes);
         let types = typing::analyze(&ast, types, &scopes);
         println!("{:#?}", types);
+
+        analysis::preorder(ast, |node| {
+            if let Some(ty) = types.node_type(node.as_dyn().node_id()) {
+                println!("{:?}  ~  {:?}", ty, node);
+            }
+        });
     }
 }

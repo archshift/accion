@@ -19,6 +19,7 @@ impl fmt::Debug for AstNodeId {
 pub trait AstNodeWrap : fmt::Debug {
     fn node_id(&self) -> AstNodeId;
     fn as_any(self) -> AstNode;
+    fn push_children(&self, dst: &mut Vec<AstNode>);
 }
 
 macro_rules! wrap {
@@ -34,6 +35,9 @@ macro_rules! wrap {
             }
             fn as_any(self) -> AstNode {
                 AstNode::$node(self)
+            }
+            fn push_children(&self, dst: &mut Vec<AstNode>) {
+                self.children(dst);
             }
         }
         impl $node {
@@ -87,6 +91,34 @@ pub enum AstNode {
     LiteralInt(LiteralInt),
     LiteralString(LiteralString),
 }
+impl AstNode {
+    pub fn as_dyn(&self) -> &dyn AstNodeWrap {
+        match self {
+            Self::Ast(n) => n,
+            Self::AnyExpr(n) => n,
+            Self::ExprUnary(n) => n,
+            Self::ExprBinary(n) => n,
+            Self::ExprIdent(n) => n,
+            Self::ExprLiteral(n) => n,
+            Self::ExprIf(n) => n,
+            Self::ExprIfCase(n) => n,
+            Self::ExprVarDecl(n) => n,
+            Self::ExprFnDecl(n) => n,
+            Self::ExprEntype(n) => n,
+            Self::ExprFnCall(n) => n,
+            Self::ExprCurry(n) => n,
+            Self::Ident(n) => n,
+            Self::AnyLiteral(n) => n,
+            Self::LiteralInt(n) => n,
+            Self::LiteralString(n) => n,
+        }
+    }
+}
+impl fmt::Debug for AstNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_dyn().fmt(f)
+    }
+}
 
 
 impl Ast {
@@ -95,6 +127,9 @@ impl Ast {
         
         unsafe { adapt_ll(program.exprs.as_ref(), |e| e.tail.as_ref()) }
             .map(|n| AnyExpr { inner: n.head })
+    }
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.extend(self.decls().map(|d| d.as_any()));
     }
 }
 impl Clone for Ast {
@@ -117,6 +152,7 @@ impl Ident {
             .to_str()
             .unwrap()
     }
+    fn children(&self, _: &mut Vec<AstNode>) { }
 }
 impl fmt::Debug for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -138,6 +174,12 @@ impl AnyLiteral {
             raw::ast_literal_type_AST_LITERAL_INT =>
                 Literal::Int(LiteralInt { inner: self.inner }),
             _ => unimplemented!()
+        }
+    }
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        match self.select() {
+            Literal::Int(l) => l.children(dst),
+            Literal::String(l) => l.children(dst),
         }
     }
 }
@@ -169,6 +211,7 @@ impl LiteralString {
             .to_str()
             .unwrap()
     }
+    fn children(&self, _: &mut Vec<AstNode>) { }
 }
 impl fmt::Debug for LiteralString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -186,6 +229,7 @@ impl LiteralInt {
                 .num
         }
     }
+    fn children(&self, _: &mut Vec<AstNode>) { }
 }
 impl fmt::Debug for LiteralInt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -234,6 +278,22 @@ impl AnyExpr {
             i.ident()
         } else {
             panic!("Syntax error: decl name must be an ident");
+        }
+    }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        match self.select() {
+            Expr::Unary(e) => e.children(dst),
+            Expr::Binary(e) => e.children(dst),
+            Expr::Literal(e) => e.children(dst),
+            Expr::Ident(e) => e.children(dst),
+            Expr::If(e) => e.children(dst),
+            Expr::IfCase(e) => e.children(dst),
+            Expr::VarDecl(e) => e.children(dst),
+            Expr::FnDecl(e) => e.children(dst),
+            Expr::Entype(e) => e.children(dst),
+            Expr::FnCall(e) => e.children(dst),
+            Expr::Curry(e) => e.children(dst),
         }
     }
 }
@@ -317,6 +377,10 @@ impl ExprUnary {
         };
         AnyExpr { inner }
     }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.operand().as_any())
+    }
 }
 impl fmt::Debug for ExprUnary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -348,6 +412,12 @@ impl ExprBinary {
         };
         (AnyExpr { inner: s.left }, AnyExpr { inner: s.right })
     }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        let (left, right) = self.operands();
+        dst.push(left.as_any());
+        dst.push(right.as_any());
+    }
 }
 impl fmt::Debug for ExprBinary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -367,6 +437,9 @@ impl ExprLiteral {
         };
         AnyLiteral { inner }
     }
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.literal().as_any())
+    }
 }
 impl fmt::Debug for ExprLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -382,6 +455,9 @@ impl ExprIdent {
             self.unwrap().__bindgen_anon_1.ident
         };
         Ident { inner }
+    }
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.ident().as_any())
     }
 }
 impl fmt::Debug for ExprIdent {
@@ -425,6 +501,12 @@ impl ExprIf {
                 .els
         };
         AnyExpr { inner }
+    }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.cond().as_any());
+        dst.push(self.then_expr().as_any());
+        dst.push(self.else_expr().as_any());
     }
 }
 impl fmt::Debug for ExprIf {
@@ -487,6 +569,21 @@ impl ExprIfCase {
         unsafe { adapt_ll(cases.as_ref(), |e| e.tail.as_ref()) }
             .map(map_case)
     }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.cond().as_any());
+        for c in self.cases() {
+            match c {
+                IfCase::OnVal(l, v) => {
+                    dst.push(l.as_any());
+                    dst.push(v.as_any());
+                }
+                IfCase::Else(v) => {
+                    dst.push(v.as_any());
+                }
+            }
+        }
+    }
 }
 impl fmt::Debug for ExprIfCase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -521,6 +618,10 @@ impl ExprEntype {
         };
         AnyExpr { inner }
     }
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.target().as_any());
+        dst.push(self.ty().as_any());
+    }
 }
 impl fmt::Debug for ExprEntype {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -554,6 +655,11 @@ impl ExprVarDecl {
                 .val
         };
         AnyExpr { inner }
+    }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.name().as_any());
+        dst.push(self.val().as_any());
     }
 }
 impl fmt::Debug for ExprVarDecl {
@@ -619,6 +725,14 @@ impl ExprFnDecl {
                 .pure_decl
         }
     }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        if let Some(name) = self.name() {
+            dst.push(name.as_any());
+        }
+        dst.extend(self.args().map(|a| a.as_any()));
+        dst.push(self.val().as_any());
+    }
 }
 impl fmt::Debug for ExprFnDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -668,6 +782,11 @@ impl ExprFnCall {
                 .pure_call
         }
     }
+
+    fn children(&self, dst: &mut Vec<AstNode>) {
+        dst.push(self.callee().as_any());
+        dst.extend(self.args().map(|a| a.as_any()));
+    }
 }
 impl fmt::Debug for ExprFnCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -679,6 +798,9 @@ impl fmt::Debug for ExprFnCall {
     }
 }
 
+impl ExprCurry {
+    fn children(&self, _: &mut Vec<AstNode>) { }
+}
 impl fmt::Debug for ExprCurry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         SExp::new(f, "curry")?.finish()

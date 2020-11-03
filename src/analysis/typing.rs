@@ -19,8 +19,10 @@ pub enum BaseType {
     Type,
     List(TypeId),
     Fn(FnArgTypes, TypeId),
-    TypeVar(usize),
     TypeExpr(ast::AstNodeId),
+    
+    TypeVar(usize),
+    TypeVarResolved(usize, TypeId),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -117,6 +119,19 @@ impl TypeStore {
     fn query(&self, ty: TypeId) -> &Type {
         &self.types[ty.0]
     }
+    fn reify(&mut self, id: TypeId, real: TypeId) -> TypeId {
+        let new_purity = self.types[real.0].purity;
+        let old = &mut self.types[id.0];
+        self.ids.remove(old);
+        
+        old.purity = old.purity.mix(new_purity);
+
+        if let BaseType::TypeVar(tv_id) = old.base {
+            old.base = BaseType::TypeVarResolved(tv_id, real);
+        }
+        self.ids.insert(old.clone(), id);
+        id
+    }
     fn join(&mut self, ty1: TypeId, ty2: TypeId) -> Result<TypeId, String> {
         let first = self.query(ty1);
         let second = self.query(ty2);
@@ -131,21 +146,30 @@ impl TypeStore {
         
         let purity = first.purity.mix(second.purity);
         let most_specific = match (&first_base, &second_base) {
+            // Can't call join on post-reduced types
+            | (BaseType::TypeVarResolved(_, _), _)
+            | (_, BaseType::TypeVarResolved(_, _))
+            => unreachable!(),
+
+            // Fully-compatible type assignments
             | (out @ BaseType::Int, BaseType::Int)
             | (out @ BaseType::Bool, BaseType::Bool)
             | (out @ BaseType::String, BaseType::String)
             | (out @ BaseType::Type, BaseType::Type)
             | (out @ BaseType::Curry, BaseType::Curry)
+            // Late-stage type resolution
             | (out, BaseType::TypeVar(_))
             | (BaseType::TypeVar(_), out)
             | (out, BaseType::TypeExpr(_))
             | (BaseType::TypeExpr(_), out)
             => out.clone(),
 
+            // Match the inner types
             | (BaseType::List(e), BaseType::List(f))
             => BaseType::List(self.join(*e, *f)
                     .map_err(chain_err)?),
 
+            // Match the inner types
             | (BaseType::Fn(args1, ret1),
                 BaseType::Fn(args2, ret2))
             => {
@@ -219,7 +243,6 @@ impl<'a> TypingCtx<'a> {
                 .unwrap();
             self.node_types.insert(node_id, new_type);
         }
-        
     }
     fn equate_nodes(&mut self, nodes: &[ast::AstNodeId]) {
         let type_var = self.types.add_typevar();
@@ -235,7 +258,73 @@ impl<'a> TypingCtx<'a> {
 #[derive(Debug)]
 pub struct Types {
     types: TypeStore,
-    node_types: NodeTypes,
+    pub node_types: NodeTypes,
+}
+impl Types {
+    pub fn node_type(&self, node: ast::AstNodeId) -> Option<&Type> {
+        if let Some(mut id) = self.node_types.get(&node).copied() {
+            let mut ty;
+            while let BaseType::TypeVarResolved(_, inner) = { 
+                ty = self.types.query(id);
+                &ty.base
+            } {
+                id = *inner;
+            }
+            Some(ty)
+        } else {
+            None
+        }
+    }
+}
+
+fn reduce_types2(types: &mut TypeStore, first: TypeId, second: TypeId) -> TypeId {
+    if first == second {
+        return first;
+    }
+
+    let first_ty = types.query(first);
+    let second_ty = types.query(second);
+    let first_base = first_ty.base.clone();
+    let second_base = second_ty.base.clone();
+    
+    match (first_base, second_base) {
+        (BaseType::TypeVarResolved(_, inner), _) => {
+            reduce_types2(types, inner, second)
+        }
+        (_, BaseType::TypeVarResolved(_, inner)) => {
+            reduce_types2(types, first, inner)
+        }
+        (BaseType::TypeVar(_), _) => {
+            types.reify(first, second)
+        }
+        (_, BaseType::TypeVar(_)) => {
+            types.reify(second, first)
+        }
+        (BaseType::Fn(args1, ret1), BaseType::Fn(args2, ret2)) => {
+            for arg in args1.iter().zip(args2.iter()) {
+                reduce_types2(types, *arg.0, *arg.1);
+            }
+            reduce_types2(types, ret1, ret2);
+            first
+        }
+        (BaseType::List(ty1), BaseType::List(ty2)) => {
+            reduce_types2(types, ty1, ty2);
+            first
+        }
+
+        (a, b) if a == b => first,
+
+        (a, b) => unimplemented!("reify {:?}, {:?}", a, b)
+    }
+}
+
+fn reduce_types(types: &mut TypeStore) {
+    let groups = types.eq_types.groups();
+    for group in groups {
+        let mut it = group.iter().copied();
+        let first = it.next().unwrap();
+        it.fold(first, |acc, new| reduce_types2(types, acc, new));
+    }
 }
 
 pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
@@ -257,6 +346,8 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
 
         s.move_from(&mut ctx.added_nodes);
     }
+
+    reduce_types(&mut ctx.types);
 
     Types {
         types: ctx.types,
@@ -411,6 +502,7 @@ impl Typing for ast::ExprVarDecl {
 }
 impl Typing for ast::ExprFnDecl {
     fn analyze_type(&self, ctx: &mut TypingCtx) {
+        let name = self.name();
         let val = self.val();
 
         let mut arg_types = FnArgTypes::new();
@@ -428,6 +520,9 @@ impl Typing for ast::ExprFnDecl {
         };
         let fn_type_id = ctx.types.add(fn_type);
         ctx.type_node(self.node_id(), fn_type_id);
+        if let Some(name) = name {
+            ctx.type_node(name.node_id(), fn_type_id);
+        }
         ctx.enqueue(self.val());
     }
 }
