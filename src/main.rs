@@ -22,7 +22,7 @@ fn main() {
 
         analysis::preorder(ast, |node| {
             if let Some(ty) = types.node_type(node.as_dyn().node_id()) {
-                println!("{:?}  ~  {:?}", ty, node);
+                println!("{:30}  ~  {:?}", types.store.format_ty(ty), node);
             }
         });
     }

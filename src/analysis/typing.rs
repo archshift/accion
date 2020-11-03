@@ -32,20 +32,20 @@ impl<'a> TypeAnalysis<'a> {
 
 #[derive(Debug)]
 pub struct Types {
-    types: TypeStore,
-    pub node_types: NodeTypes,
+    pub store: TypeStore,
+    node_types: NodeTypes,
 }
 impl Types {
-    pub fn node_type(&self, node: ast::AstNodeId) -> Option<&Type> {
+    pub fn node_type(&self, node: ast::AstNodeId) -> Option<TypeId> {
         if let Some(mut id) = self.node_types.get(&node).copied() {
             let mut ty;
             while let BaseType::TypeVarResolved(_, inner) = { 
-                ty = self.types.query(id);
+                ty = self.store.query(id);
                 &ty.base
             } {
                 id = *inner;
             }
-            Some(ty)
+            Some(id)
         } else {
             None
         }
@@ -82,7 +82,7 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
     }
 
     Types {
-        types: ctx.types,
+        store: ctx.types,
         node_types: ctx.node_types,
     }
 }

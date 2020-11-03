@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::analysis::{preorder, Visitor};
 use crate::ast::{self, AstNodeWrap};
 use crate::builtins::BuiltinMap;
-use dynstack::{DynStack, dyn_push};
-use smallvec::SmallVec;
-use derive_newtype::NewType;
 
 #[derive(Debug)]
 pub struct Declaration {
@@ -43,34 +41,10 @@ impl fmt::Debug for ScopeId {
 }
 
 pub type NodeScopes = HashMap<ast::AstNodeId, ScopeId>;
-type DeclsOut = SmallVec<[Declaration; 1]>;
-
-#[derive(NewType)]
-struct NodeStack(DynStack<dyn Scoping>);
-impl NodeStack {
-    fn new() -> Self {
-        Self(DynStack::new())
-    }
-    
-    fn push<N: 'static + Scoping>(&mut self, node: N) {
-        let node: N = node;
-        dyn_push!(**self, node);
-    }
-
-    fn move_from(&mut self, other: &mut Self) {
-        for node in other.iter_mut() {
-            unsafe {
-                (**self).push(node);
-            }
-        }
-        while other.forget_last() {}
-    }
-}
 
 struct ScopingCtx {
     scopes: Vec<Scope>,
     node_scopes: NodeScopes,
-    added_nodes: NodeStack,
     scope: ScopeId,
     builtins: BuiltinMap,
 }
@@ -80,13 +54,23 @@ impl ScopingCtx {
         self.scopes.push(Scope::new(parent));
         ScopeId(self.scopes.len()-1)
     }
-    fn scope_and_queue<N: 'static + Scoping>(&mut self, scope: ScopeId, node: N) {
-        let old = self.node_scopes.insert(node.node_id(), scope);
+    fn set_scope(&mut self, node: ast::AstNodeId, scope: ScopeId) {
+        let old = self.node_scopes.insert(node, scope);
         assert!(old.is_none());
-        self.added_nodes.push(node);
     }
     fn node_scope_id(&self, node: ast::AstNodeId) -> Option<ScopeId> {
         self.node_scopes.get(&node).copied()
+    }
+    fn add_decl(&mut self, decl: Declaration) {
+        let scope = &mut self.scopes[decl.scope.0];
+        if self.builtins.contains_key(&decl.name) {
+            panic!("Cannot shadow builtin function with decl {:?}!", decl.name);
+        }
+        if scope.decls.contains_key(&decl.name) {
+            panic!("Cannot reassign ident in the same scope! Previous decl: {:?}; new decl: {:?}",
+                scope.decls[&decl.name], &decl);
+        }
+        scope.decls.insert(decl.name.clone(), decl);
     }
 }
 
@@ -95,7 +79,6 @@ pub struct Scopes {
     scopes: Vec<Scope>,
     node_scopes: NodeScopes,
     pub builtins: BuiltinMap,
-    pub node_count: usize,
 }
 
 impl Scopes {
@@ -121,184 +104,99 @@ pub fn analyze(root: &ast::Ast, builtins: BuiltinMap) -> Scopes {
     let mut ctx = ScopingCtx {
         scopes: Vec::new(),
         node_scopes: NodeScopes::new(),
-        added_nodes: NodeStack::new(),
         scope: ScopeId(!0),
         builtins,
     };
 
-    let mut s = NodeStack::new();
-    let mut count = 0;
+    let global_scope = ctx.new_scope(ctx.scope);
+    ctx.set_scope(root.node_id(), global_scope);
 
-    ctx.scope = ctx.new_scope(ctx.scope);
-    ctx.scope_and_queue(ctx.scope, root.clone());
-    s.move_from(&mut ctx.added_nodes);
-
-    while let Some(node) = s.peek() {
-        ctx.scope = ctx.node_scope_id(node.node_id()).unwrap();
-        node.analyze_scope(&mut ctx);
-        count += 1;
-        
-        for decl in node.declaration(&mut ctx) {
-            let scope = &mut ctx.scopes[decl.scope.0];
-            if ctx.builtins.contains_key(&decl.name) {
-                panic!("Cannot shadow builtin function with decl {:?}!", decl.name);
-            }
-            if scope.decls.contains_key(&decl.name) {
-                panic!("Cannot reassign ident in the same scope! Previous decl: {:?}; new decl: {:?}",
-                    scope.decls[&decl.name], &decl);
-            }
-            scope.decls.insert(decl.name.clone(), decl);
+    preorder(root.clone(), |node| {
+        let node_id = node.as_dyn().node_id();
+        if let Some(scope) = ctx.node_scope_id(node_id) {
+            ctx.scope = scope;
+            ctx.visit_node(node);
         }
-        
-        s.remove_last();
-        s.move_from(&mut ctx.added_nodes);
-    }
-    
+    });
+
     Scopes {
         scopes: ctx.scopes,
         node_scopes: ctx.node_scopes,
         builtins: ctx.builtins,
-        node_count: count, // TODO: this doesn't really belong here
     }
 }
 
-trait Scoping : ast::AstNodeWrap {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx);
-    fn declaration(&self, _ctx: &mut ScopingCtx) -> DeclsOut {
-        DeclsOut::new()
+impl Visitor for ScopingCtx {
+    fn visit_expr_binary(&mut self, node: &ast::ExprBinary) {
+        let (op1, op2) = node.operands();
+        self.set_scope(op1.node_id(), self.scope);
+        self.set_scope(op2.node_id(), self.scope);
     }
-}
-
-impl Scoping for ast::Ast {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        for decl in self.decls() {
-            ctx.scope_and_queue(ctx.scope, decl);
+    fn visit_expr_unary(&mut self, node: &ast::ExprUnary) {
+        self.set_scope(node.operand().node_id(), self.scope);
+    }
+    fn visit_expr_fn_call(&mut self, node: &ast::ExprFnCall) {
+        self.set_scope(node.callee().node_id(), self.scope);
+        for arg in node.args() {
+            self.set_scope(arg.node_id(), self.scope);
         }
     }
-}
-
-impl Scoping for ast::AnyExpr {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        match self.select() {
-            ast::Expr::Binary(e) => e.analyze_scope(ctx),
-            ast::Expr::Unary(e) => e.analyze_scope(ctx),
-            ast::Expr::FnCall(e) => e.analyze_scope(ctx),
-            ast::Expr::If(e) => e.analyze_scope(ctx),
-            ast::Expr::IfCase(e) => e.analyze_scope(ctx),
-            ast::Expr::Entype(e) => e.analyze_scope(ctx),
-            ast::Expr::VarDecl(e) => e.analyze_scope(ctx),
-            ast::Expr::FnDecl(e) => e.analyze_scope(ctx),
-            ast::Expr::Literal(_) => {},
-            ast::Expr::Ident(_) => {},
-            ast::Expr::Curry(_) => {},
-        }
+    fn visit_expr_if(&mut self, node: &ast::ExprIf) {
+        let then_scope = self.new_scope(self.scope);
+        let else_scope = self.new_scope(self.scope);
+        self.set_scope(node.cond().node_id(), self.scope);
+        self.set_scope(node.then_expr().node_id(), then_scope);
+        self.set_scope(node.else_expr().node_id(), else_scope);
     }
-    fn declaration(&self, ctx: &mut ScopingCtx) -> DeclsOut {
-        match self.select() {
-            ast::Expr::Entype(e) => e.declaration(ctx),
-            ast::Expr::VarDecl(e) => e.declaration(ctx),
-            ast::Expr::FnDecl(e) => e.declaration(ctx),
-            ast::Expr::Binary(_)
-            | ast::Expr::Unary(_)
-            | ast::Expr::FnCall(_)
-            | ast::Expr::If(_)
-            | ast::Expr::IfCase(_)
-            | ast::Expr::Literal(_)
-            | ast::Expr::Ident(_)
-            | ast::Expr::Curry(_)
-            => DeclsOut::new()
-        }
-    }
-}
-
-impl Scoping for ast::ExprBinary {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        let (op1, op2) = self.operands();
-        ctx.scope_and_queue(ctx.scope, op1);
-        ctx.scope_and_queue(ctx.scope, op2);
-    }
-}
-impl Scoping for ast::ExprUnary {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        ctx.scope_and_queue(ctx.scope, self.operand());
-    }
-}
-impl Scoping for ast::ExprFnCall {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        ctx.scope_and_queue(ctx.scope, self.callee());
-        for arg in self.args() {
-            ctx.scope_and_queue(ctx.scope, arg);
-        }
-    }
-}
-impl Scoping for ast::ExprIf {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        let then_scope = ctx.new_scope(ctx.scope);
-        let else_scope = ctx.new_scope(ctx.scope);
-        ctx.scope_and_queue(ctx.scope, self.cond());
-        ctx.scope_and_queue(then_scope, self.then_expr());
-        ctx.scope_and_queue(else_scope, self.else_expr());
-    }
-}
-impl Scoping for ast::ExprIfCase {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        ctx.scope_and_queue(ctx.scope, self.cond());
-        let new_scope = ctx.new_scope(ctx.scope);
-        for case in self.cases() {
+    fn visit_expr_if_case(&mut self, node: &ast::ExprIfCase) {
+        self.set_scope(node.cond().node_id(), self.scope);
+        let new_scope = self.new_scope(self.scope);
+        for case in node.cases() {
             match case {
                 | ast::IfCase::OnVal(_, val)
                 | ast::IfCase::Else(val)
-                => ctx.scope_and_queue(new_scope, val)
+                => self.set_scope(val.node_id(), new_scope)
             }
         }
     }
-}
-impl Scoping for ast::ExprEntype {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        ctx.scope_and_queue(ctx.scope, self.ty());
+    fn visit_expr_entype(&mut self, node: &ast::ExprEntype) {
+        self.set_scope(node.ty().node_id(), self.scope);
     }
-}
-impl Scoping for ast::ExprVarDecl {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        ctx.scope_and_queue(ctx.scope, self.val());
-    }
-    fn declaration(&self, ctx: &mut ScopingCtx) -> DeclsOut {
-        let mut out = DeclsOut::new();
-        out.push(Declaration {
-            name: self.name().name().to_owned(),
-            scope: ctx.scope,
-            node_id: self.node_id(),
+    fn visit_expr_var_decl(&mut self, node: &ast::ExprVarDecl) {
+        self.set_scope(node.val().node_id(), self.scope);
+        self.add_decl(Declaration {
+            name: node.name().name().to_owned(),
+            scope: self.scope,
+            node_id: node.node_id(),
             impure_fn: false,
         });
-        out
     }
-}
-impl Scoping for ast::ExprFnDecl {
-    fn analyze_scope(&self, ctx: &mut ScopingCtx) {
-        let body_scope = ctx.new_scope(ctx.scope);
-        ctx.scope_and_queue(body_scope, self.val());
-    }
-    fn declaration(&self, ctx: &mut ScopingCtx) -> DeclsOut {
-        let mut out = DeclsOut::new();
+    fn visit_expr_fn_decl(&mut self, node: &ast::ExprFnDecl) {
+        let body_scope = self.new_scope(self.scope);
+        self.set_scope(node.val().node_id(), body_scope);
         
-        if let Some(name) = self.name() {
-            out.push(Declaration {
+        if let Some(name) = node.name() {
+            self.add_decl(Declaration {
                 name: name.name().to_owned(),
-                scope: ctx.scope,
+                scope: self.scope,
                 node_id: name.node_id(),
-                impure_fn: !self.pure(),
+                impure_fn: !node.pure(),
             });
         }
-        
-        let body_scope = ctx.node_scope_id(self.val().node_id()).unwrap();
-        for arg in self.args() {
-            out.push(Declaration {
+        for arg in node.args() {
+            self.add_decl(Declaration {
                 name: arg.name().to_owned(),
                 scope: body_scope,
                 node_id: arg.node_id(),
                 impure_fn: false,
             });
         }
-        out
     }
+
+    fn visit_expr_literal(&mut self, _: &ast::ExprLiteral) {}
+    fn visit_expr_curry(&mut self, _: &ast::ExprCurry) {}
+    fn visit_expr_ident(&mut self, _: &ast::ExprIdent) {}
+    fn visit_literal_int(&mut self, _: &ast::LiteralInt) {}
+    fn visit_literal_str(&mut self, _: &ast::LiteralString) {}
+    fn visit_ident(&mut self, _: &ast::Ident) {}
 }
