@@ -60,24 +60,23 @@ impl Type {
             base, purity: Purity::Any
         }
     }
+}
 
-    fn dependent_types(&self, ty: TypeId) -> SmallVec<[TypeId; 4]> {
-        match &self.base {
-            | BaseType::Int | BaseType::Bool | BaseType::String
-            | BaseType::Curry | BaseType::Type | BaseType::TypeExpr(_)
-            | BaseType::TypeVar(_)
-            => SmallVec::new(),
+#[derive(Default)]
+pub struct TypeCollateError {
+    chain: Vec<(TypeId, TypeId)>,
+}
+impl TypeCollateError {
+    pub fn print(self, types: &TypeStore) {
+        let mut iter = self.chain.into_iter();
 
-            | BaseType::List(inner)
-            | BaseType::TypeVarResolved(_, inner)
-            => SmallVec::from_slice(&[*inner]),
-
-            | BaseType::Fn(args, ret)
-            => {
-                let mut out = args.clone();
-                out.push(*ret);
-                out
-            }
+        let (t1, t2) = iter.next().unwrap();
+        eprintln!("Error resolving types {} = {}",
+            types.format_ty(t1), types.format_ty(t2));
+        
+        for (t1, t2) in iter {
+            eprintln!("  While resolving {} = {}",
+                types.format_ty(t1), types.format_ty(t2));
         }
     }
 }
@@ -91,6 +90,7 @@ impl TypeStore {
             types: IdMap::new(),
         }
     }
+
     pub fn add(&mut self, ty: Type) -> TypeId {
         self.types.add(ty).into()
     }
@@ -101,6 +101,7 @@ impl TypeStore {
     pub fn query(&self, ty: TypeId) -> &Type {
         &self.types.get(*ty).unwrap()
     }
+
     pub fn reify(&mut self, id: TypeId, real: TypeId) -> TypeId {
         let new_purity = self.query(real).purity;
 
@@ -112,7 +113,94 @@ impl TypeStore {
             }
         });
 
-        id
+        real
+    }
+
+    pub fn collate_types(&mut self, first: TypeId, second: TypeId) -> Result<TypeId, TypeCollateError> {
+        if first == second {
+            return Ok(first);
+        }
+
+        let first_ty = self.query(first);
+        let second_ty = self.query(second);
+        let first_base = first_ty.base.clone();
+        let second_base = second_ty.base.clone();
+
+        let chain_err = |mut e: TypeCollateError| {
+            e.chain.push((first, second));
+            e
+        };
+        
+        match (first_base, second_base) {
+            (BaseType::TypeVarResolved(_, inner), _) => {
+                self.collate_types(inner, second)
+            }
+            (_, BaseType::TypeVarResolved(_, inner)) => {
+                self.collate_types(first, inner)
+            }
+            (BaseType::TypeVar(_), _) => {
+                Ok(self.reify(first, second))
+            }
+            (_, BaseType::TypeVar(_)) => {
+                Ok(self.reify(second, first))
+            }
+            (BaseType::Fn(args1, ret1), BaseType::Fn(args2, ret2)) => {
+                if args1.len() != args2.len() {
+                    return Err(chain_err(Default::default()))
+                }
+
+                for arg in args1.iter().zip(args2.iter()) {
+                    self.collate_types(*arg.0, *arg.1)
+                        .map_err(chain_err)?;
+                }
+                self.collate_types(ret1, ret2)
+                    .map_err(chain_err)?;
+                Ok(first)
+            }
+            (BaseType::List(ty1), BaseType::List(ty2)) => {
+                self.collate_types(ty1, ty2)
+                    .map_err(chain_err)?;
+                Ok(first)
+            }
+
+            (a, b) if a == b => Ok(first),
+
+            (_, _) => Err(chain_err(Default::default()))
+        }
+    }
+
+    pub fn format_ty(&self, ty: TypeId) -> String {
+        use std::fmt::Write;
+        let ty = self.query(ty);
+        let mut out = match &ty.base {
+            BaseType::String => "String".into(),
+            BaseType::Int => "Int".into(),
+            BaseType::Bool => "Bool".into(),
+            BaseType::Type => "Meta".into(),
+            BaseType::Curry => "...".into(),
+            BaseType::TypeVar(i) => format!("'{}", i),
+            BaseType::TypeExpr(node)
+                => format!("TypeExpr({:?})", node),
+            BaseType::TypeVarResolved(_, inner)
+                => self.format_ty(*inner),
+            BaseType::List(inner)
+                => format!("List({})", self.format_ty(*inner)),
+            BaseType::Fn(args, ret) => {
+                let mut out: String = "Fn(".into();
+                for arg in args {
+                    write!(&mut out, "{} -> ", self.format_ty(*arg))
+                        .unwrap();
+                }
+                out.push_str(&self.format_ty(*ret));
+                out.push(')');
+                out
+            }
+        };
+
+        if ty.purity == Purity::Impure {
+            out.push('!')
+        }
+        out
     }
 }
 impl fmt::Debug for TypeStore {

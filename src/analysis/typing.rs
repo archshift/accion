@@ -52,54 +52,16 @@ impl Types {
     }
 }
 
-fn reduce_types2(types: &mut TypeStore, first: TypeId, second: TypeId) -> TypeId {
-    if first == second {
-        return first;
-    }
-
-    let first_ty = types.query(first);
-    let second_ty = types.query(second);
-    let first_base = first_ty.base.clone();
-    let second_base = second_ty.base.clone();
-    
-    match (first_base, second_base) {
-        (BaseType::TypeVarResolved(_, inner), _) => {
-            reduce_types2(types, inner, second)
-        }
-        (_, BaseType::TypeVarResolved(_, inner)) => {
-            reduce_types2(types, first, inner)
-        }
-        (BaseType::TypeVar(_), _) => {
-            types.reify(first, second)
-        }
-        (_, BaseType::TypeVar(_)) => {
-            types.reify(second, first)
-        }
-        (BaseType::Fn(args1, ret1), BaseType::Fn(args2, ret2)) => {
-            for arg in args1.iter().zip(args2.iter()) {
-                reduce_types2(types, *arg.0, *arg.1);
-            }
-            reduce_types2(types, ret1, ret2);
-            first
-        }
-        (BaseType::List(ty1), BaseType::List(ty2)) => {
-            reduce_types2(types, ty1, ty2);
-            first
-        }
-
-        (a, b) if a == b => first,
-
-        (a, b) => unimplemented!("reify {:?}, {:?}", a, b)
-    }
-}
-
-fn reduce_types(ctx: &mut TypeAnalysis) {
+fn reduce_types(ctx: &mut TypeAnalysis) -> Result<(), TypeCollateError> {
     let groups = ctx.eq_types.groups();
     for group in groups {
         let mut it = group.iter().copied();
         let first = it.next().unwrap();
-        it.fold(first, |acc, new| reduce_types2(&mut ctx.types, acc, new));
+        it.try_fold(first,
+            |acc, new| ctx.types.collate_types(acc, new)
+        )?;
     }
+    Ok(())
 }
 
 pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
@@ -114,7 +76,10 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
         ctx.visit_node(node);
     });
 
-    reduce_types(&mut ctx);
+    if let Err(e) = reduce_types(&mut ctx) {
+        e.print(&ctx.types);
+        panic!("Type resolution error!");
+    }
 
     Types {
         types: ctx.types,
