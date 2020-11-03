@@ -1,222 +1,25 @@
 use std::collections::HashMap;
-use std::fmt;
 
 use crate::ast::{self, AstNodeWrap};
 use crate::analysis::{preorder, Visitor, scoping::Scopes};
 use crate::disjoint_set::DisjointSet;
+use crate::types::*;
 use smallvec::SmallVec;
-
-pub type FnArgTypes = SmallVec<[TypeId; 4]>;
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum BaseType {
-    Int,
-    Bool,
-    String,
-    Curry,
-    Type,
-    List(TypeId),
-    Fn(FnArgTypes, TypeId),
-    TypeExpr(ast::AstNodeId),
-    
-    TypeVar(usize),
-    TypeVarResolved(usize, TypeId),
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Purity {
-    Pure,
-    Impure,
-    Any
-}
-
-impl Purity {
-    fn mix(self, other: Purity) -> Purity {
-        match (self, other) {
-            (Purity::Any, other)
-            | (other, Purity::Any) => other,
-            (Purity::Pure, Purity::Pure) => Purity::Pure,
-            (Purity::Impure, Purity::Impure) => Purity::Impure,
-            _ => panic!("Purity mismatch!")
-        }
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct Type {
-    pub base: BaseType,
-    pub purity: Purity,
-}
-impl Type {
-    pub const fn new(base: BaseType) -> Self {
-        Self {
-            base, purity: Purity::Any
-        }
-    }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct TypeId(usize);
-impl fmt::Debug for TypeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TypeId({})", self.0)
-    }
-}
 
 type NodeTypes = HashMap<ast::AstNodeId, TypeId>;
 type TypesEq = DisjointSet<TypeId>;
 
-pub struct TypeStore {
-    types: Vec<Type>,
-    ids: HashMap<Type, TypeId>,
-    eq_types: TypesEq,
-}
-impl TypeStore {
-    pub fn new() -> Self {
-        Self {
-            types: Vec::new(),
-            ids: HashMap::new(),
-            eq_types: TypesEq::new(1000),
-        }
-    }
-    pub fn add(&mut self, ty: Type) -> TypeId {
-        let next_id = self.types.len();
-        let out = *self.ids.entry(ty.clone())
-            .or_insert(TypeId(next_id) );
-        if out.0 == next_id {
-            self.types.push(ty);
-        }
-        out
-    }
-    fn add_typevar(&mut self) -> TypeId {
-        let next_id = self.types.len();
-        self.add(Type::new(BaseType::TypeVar(next_id)))
-    }
-    fn query(&self, ty: TypeId) -> &Type {
-        &self.types[ty.0]
-    }
-    fn reify(&mut self, id: TypeId, real: TypeId) -> TypeId {
-        let new_purity = self.types[real.0].purity;
-        let old = &mut self.types[id.0];
-        self.ids.remove(old);
-        
-        old.purity = old.purity.mix(new_purity);
-
-        if let BaseType::TypeVar(tv_id) = old.base {
-            old.base = BaseType::TypeVarResolved(tv_id, real);
-        }
-        self.ids.insert(old.clone(), id);
-        id
-    }
-    fn join(&mut self, ty1: TypeId, ty2: TypeId) -> Result<TypeId, String> {
-        let first = self.query(ty1);
-        let second = self.query(ty2);
-        let first_base = first.base.clone();
-        let second_base = second.base.clone();
-        
-        let chain_err = |e: String| {
-            format!("{}\nCaused by join of {:?}: {:?} and {:?}: {:?}",
-                e, ty1, first_base,
-                ty2, second_base)
-        };
-        
-        let purity = first.purity.mix(second.purity);
-        let most_specific = match (&first_base, &second_base) {
-            // Can't call join on post-reduced types
-            | (BaseType::TypeVarResolved(_, _), _)
-            | (_, BaseType::TypeVarResolved(_, _))
-            => unreachable!(),
-
-            // Fully-compatible type assignments
-            | (out @ BaseType::Int, BaseType::Int)
-            | (out @ BaseType::Bool, BaseType::Bool)
-            | (out @ BaseType::String, BaseType::String)
-            | (out @ BaseType::Type, BaseType::Type)
-            | (out @ BaseType::Curry, BaseType::Curry)
-            // Late-stage type resolution
-            | (out, BaseType::TypeVar(_))
-            | (BaseType::TypeVar(_), out)
-            | (out, BaseType::TypeExpr(_))
-            | (BaseType::TypeExpr(_), out)
-            => out.clone(),
-
-            // Match the inner types
-            | (BaseType::List(e), BaseType::List(f))
-            => BaseType::List(self.join(*e, *f)
-                    .map_err(chain_err)?),
-
-            // Match the inner types
-            | (BaseType::Fn(args1, ret1),
-                BaseType::Fn(args2, ret2))
-            => {
-                if args1.len() != args2.len() {
-                    return Err(format!(
-                        "Tried to resolve fn calls with different arg list lengths! {:?} vs {:?}",
-                        first.base, second.base
-                    ));
-                }
-                let new_args: Result<SmallVec<_>, String> =
-                    args1.iter().copied()
-                    .zip(args2.iter().copied())
-                    .map(|p| self.join(p.0, p.1))
-                    .map(|r| r.map_err(chain_err))
-                    .collect();
-                let new_ret = self.join(*ret1, *ret2)
-                    .map_err(chain_err)?;
-                BaseType::Fn(new_args?, new_ret)
-            }
-
-            (x, y) => {
-                return Err(format!(
-                    "Type mismatch between {:?}: {:?} and {:?}: {:?}!",
-                    ty1, x,
-                    ty2, y
-                ));
-            }
-        };
-
-        self.eq_types.join(&ty1, &ty2);
-
-        Ok(self.add(Type {
-            base: most_specific,
-            purity
-        }))
-    }
-}
-impl fmt::Debug for TypeStore {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut kvs: Vec<(Type, TypeId)> =
-            self.ids.iter()
-            .map(|(ty, id)| (ty.clone(), id.clone()))
-            .collect();
-        
-        kvs.sort_by(|(_, TypeId(a)), (_, TypeId(b))| a.cmp(b));
-        
-        let mut dbg_s = f.debug_struct("TypeStore");
-        for (ty, ty_id) in kvs {
-            dbg_s.field(&ty_id.0.to_string(), &ty);
-        }
-        dbg_s.field("eq_types", &self.eq_types);
-        dbg_s.finish()
-    }
-}
-
 struct TypeAnalysis<'a> {
     scopes: &'a Scopes,
     types: TypeStore,
+    eq_types: TypesEq,
     node_types: NodeTypes,
 }
 
 impl<'a> TypeAnalysis<'a> {
     fn type_node(&mut self, node_id: ast::AstNodeId, ty: TypeId) {
         if let Some(old) = self.node_types.insert(node_id, ty) {
-            let new_type = self.types.join(old, ty)
-                .map_err(|e| {
-                    format!("{}\nCaused by assigning type of node {:?} to {:?}: {:?}",
-                        e, node_id, ty, self.types.query(ty))
-                })
-                .unwrap();
-            self.node_types.insert(node_id, new_type);
+            self.eq_types.join(&ty, &old);
         }
     }
     fn equate_nodes(&mut self, nodes: &[ast::AstNodeId]) {
@@ -290,12 +93,12 @@ fn reduce_types2(types: &mut TypeStore, first: TypeId, second: TypeId) -> TypeId
     }
 }
 
-fn reduce_types(types: &mut TypeStore) {
-    let groups = types.eq_types.groups();
+fn reduce_types(ctx: &mut TypeAnalysis) {
+    let groups = ctx.eq_types.groups();
     for group in groups {
         let mut it = group.iter().copied();
         let first = it.next().unwrap();
-        it.fold(first, |acc, new| reduce_types2(types, acc, new));
+        it.fold(first, |acc, new| reduce_types2(&mut ctx.types, acc, new));
     }
 }
 
@@ -303,6 +106,7 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
     let mut ctx = TypeAnalysis {
         scopes,
         types,
+        eq_types: TypesEq::new(1000),
         node_types: NodeTypes::new(),
     };
     
@@ -310,7 +114,7 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
         ctx.visit_node(node);
     });
 
-    reduce_types(&mut ctx.types);
+    reduce_types(&mut ctx);
 
     Types {
         types: ctx.types,

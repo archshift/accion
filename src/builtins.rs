@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::analysis::typing::{BaseType, Purity, Type, FnArgTypes, TypeStore, TypeId};
+use crate::types::{Type, TypeId, TypeStore, BaseType, Purity, FnArgTypes};
 
 pub type BuiltinMap = HashMap<String, Builtin>;
 

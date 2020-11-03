@@ -5,13 +5,15 @@ mod lliter;
 mod analysis;
 mod disjoint_set;
 mod builtins;
+mod id_map;
+mod types;
 
 use crate::analysis::{scoping, typing};
 
 fn main() {
     let res = parser::parse_stdin();
     if let Ok(ast) = res {
-        let mut types = typing::TypeStore::new();
+        let mut types = types::TypeStore::new();
         let builtins = builtins::make_builtins(&mut types);
         let scopes = scoping::analyze(&ast, builtins);
         println!("{:#?}", scopes);
