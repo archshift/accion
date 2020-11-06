@@ -1,5 +1,5 @@
 mod parser;
-mod ast;
+pub mod ast;
 mod sexp;
 mod lliter;
 mod analysis;
@@ -7,6 +7,7 @@ mod disjoint_set;
 mod builtins;
 mod id_map;
 mod types;
+mod values;
 
 use crate::analysis::{scoping, typing};
 

@@ -1,7 +1,7 @@
 #pragma once
-#include "ast.h"
+#include "ast_bindings.h"
 
 typedef struct {
     void *scanner;
-    ast_program *out_ast;
+    const Ast *out_ast;
 } parse_ctx_t;

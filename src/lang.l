@@ -18,28 +18,20 @@
 "let"                                   { return LET; }
 "do"                                    { return DO; }
 
-[a-zA-Z_][0-9a-zA-Z_]*                  {   yylval->ident = NEW(ast_ident, {
-                                                .name = strdup(yytext)
-                                            });
+[a-zA-Z_][0-9a-zA-Z_]*                  {   yylval->str = strdup(yytext);
                                             return IDENT; }
-[0-9]+                                  {   yylval->lit = NEW(ast_literal, {
-                                                .ty = AST_LITERAL_INT,
-                                                .num = strtoull(yytext, NULL, 10),
-                                            });
+[0-9]+                                  {   yylval->num = strtoull(yytext, NULL, 10);
                                             if (errno == ERANGE) {
                                                 return YYerror;
                                             } else {
-                                                return LITERAL;
+                                                return LITERAL_INT;
                                             }
                                         }
 
 \"(\\.|[^"])*\"                         {   char *str = strdup(yytext + 1);
                                             str[yyleng - 2] = 0;
-                                            yylval->lit = NEW(ast_literal, {
-                                                .ty = AST_LITERAL_STRING,
-                                                .str = str
-                                            });
-                                            return LITERAL; }
+                                            yylval->str = str;
+                                            return LITERAL_STR; }
 
 "+"                                     { return PLUS; }
 "-"                                     { return MINUS; }
@@ -58,5 +50,5 @@
 ";"                                     { return SEMI; }
 "=="                                    { return EQ; }
 
-#[^\n]*\n                                {}
+#[^\n]*\n                               {}
 [ \n\t]                                 {}

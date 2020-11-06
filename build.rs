@@ -2,16 +2,16 @@ use std::process::Command;
 use std::path::PathBuf;
 use std::env;
 use std::ffi::{OsString, OsStr};
-use bindgen;
 use cc;
+use cbindgen;
 
 const EXTRA_SRCS: &[&str] = &[
     "src/lang.l",
     "src/lang.y",
     "src/parse_ctx.h",
     "src/parser.c",
-    "src/parser.h",
     "src/ast.h",
+    "src/ast.rs",
 ];
 
 fn oscat(s: impl Into<OsString>, e: impl AsRef<OsStr>) -> OsString {
@@ -48,15 +48,18 @@ fn main() {
         .wait()
         .expect("Error running flex!");
     assert!(flex_stat.success());
-
-    let parser_rs = out_path.join("parser.rs");
-    bindgen::builder()
-        .header("src/parser.h")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+    
+    let ast_bindings_h = out_path.join("ast_bindings.h");
+    let mut cbindgen_cfg = cbindgen::Config::default();
+    cbindgen_cfg.enumeration.prefix_with_name = true;
+    cbindgen::Builder::new()
+        .with_config(cbindgen_cfg)
+        .with_language(cbindgen::Language::C)
+        .with_pragma_once(true)
+        .with_src("src/ast.rs")
         .generate()
         .expect("Failed to generate bindings!")
-        .write_to_file(parser_rs)
-        .expect("Failed to write bindings to file!");
+        .write_to_file(ast_bindings_h);
 
     cc::Build::new()
         .file("src/parser.c")

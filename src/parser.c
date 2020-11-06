@@ -3,7 +3,7 @@
 #include "lang.tab.h"
 #include "lex.yy.h"
 
-int parse_stdin(ast_program **ast) {
+int parse_stdin(Ast **ast) {
     int res;
     yyscan_t scanner;
     res = yylex_init(&scanner);

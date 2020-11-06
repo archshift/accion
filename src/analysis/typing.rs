@@ -64,7 +64,7 @@ fn reduce_types(ctx: &mut TypeAnalysis) -> Result<(), TypeCollateError> {
     Ok(())
 }
 
-pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
+pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
     let mut ctx = TypeAnalysis {
         scopes,
         types,
@@ -72,7 +72,7 @@ pub fn analyze(root: &ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
         node_types: NodeTypes::new(),
     };
     
-    preorder(root.clone(), |node| {
+    preorder(root, |node| {
         ctx.visit_node(node);
     });
 
@@ -98,7 +98,7 @@ trait Typing : ast::AstNodeWrap {
 }
 
 impl Visitor for TypeAnalysis<'_> {
-    fn visit_expr_entype(&mut self, node: &ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
         let meta_id = self.types.add(PURE_META);
         let target = node.target();
         let ty = node.ty();
@@ -119,12 +119,12 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(decl.node_id, type_expr_id);
     }
 
-    fn visit_expr_literal(&mut self, node: &ast::ExprLiteral) {
+    fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral) {
         let lit = node.literal();
         self.equate_nodes(&[node.node_id(), lit.node_id()]);
     }
 
-    fn visit_expr_ident(&mut self, node: &ast::ExprIdent) {
+    fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent) {
         let ident = node.ident();
         let name = ident.name();
         
@@ -151,7 +151,7 @@ impl Visitor for TypeAnalysis<'_> {
         self.equate_nodes(&[node.node_id(), decl.node_id]);
     }
 
-    fn visit_expr_if(&mut self, node: &ast::ExprIf) {
+    fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
         let bool_id = self.types.add(ANY_BOOL);
 
         let cond = node.cond();
@@ -163,12 +163,13 @@ impl Visitor for TypeAnalysis<'_> {
         self.equate_nodes(&[node.node_id(), then_expr.node_id(), else_expr.node_id()]);
     }
 
-    fn visit_expr_if_case(&mut self, node: &ast::ExprIfCase) {
+    fn visit_expr_if_case(&mut self, node: &'static ast::ExprIfCase) {
         let cond = node.cond();
         let mut cond_ty_nodes = SmallVec::<[ast::AstNodeId; 4]>::new();
         let mut val_ty_nodes = SmallVec::<[ast::AstNodeId; 4]>::new();
 
         cond_ty_nodes.push(cond.node_id());
+        val_ty_nodes.push(node.node_id());
         
         for case in node.cases() {
             match case {
@@ -186,12 +187,12 @@ impl Visitor for TypeAnalysis<'_> {
         self.equate_nodes(&val_ty_nodes);
     }
 
-    fn visit_expr_var_decl(&mut self, node: &ast::ExprVarDecl) {
+    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
         let val = node.val();
         self.equate_nodes(&[node.node_id(), val.node_id()]);
     }
 
-    fn visit_expr_fn_decl(&mut self, node: &ast::ExprFnDecl) {
+    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
         let name = node.name();
         let val = node.val();
 
@@ -215,12 +216,12 @@ impl Visitor for TypeAnalysis<'_> {
         }
     }
 
-    fn visit_expr_curry(&mut self, node: &ast::ExprCurry) {
+    fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry) {
         let curry_id = self.types.add(ANY_CURRY);
         self.type_node(node.node_id(), curry_id);
     }
 
-    fn visit_expr_unary(&mut self, node: &ast::ExprUnary) {
+    fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary) {
         let inner = node.operand();
         match node.operator() {
             | ast::UnaryOp::Negate => {
@@ -245,7 +246,7 @@ impl Visitor for TypeAnalysis<'_> {
         }
     }
 
-    fn visit_expr_binary(&mut self, node: &ast::ExprBinary) {
+    fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary) {
         let (left, right) = node.operands();
         match node.operator() {
             | ast::BinaryOp::Add
@@ -297,12 +298,12 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(callee.node_id(), fn_type_id);
     }
 
-    fn visit_literal_int(&mut self, node: &ast::LiteralInt) {
+    fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
         let ty_id = self.types.add(ANY_INT);
         self.type_node(node.node_id(), ty_id);
     }
 
-    fn visit_literal_str(&mut self, node: &ast::LiteralString) {
+    fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
         let ty_id = self.types.add(ANY_STRING);
         self.type_node(node.node_id(), ty_id);
     }

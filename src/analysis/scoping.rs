@@ -7,7 +7,7 @@ use crate::builtins::BuiltinMap;
 
 #[derive(Debug)]
 pub struct Declaration {
-    name: String,
+    pub name: String,
     scope: ScopeId,
     pub node_id: ast::AstNodeId,
     pub impure_fn: bool,
@@ -29,6 +29,10 @@ impl Scope {
 
     pub fn resolve<'a>(&'a self, name: &str) -> Option<&'a Declaration> {
         self.decls.get(name)
+    }
+
+    pub fn decls(&self) -> impl Iterator<Item=&Declaration> {
+        self.decls.values()
     }
 }
 
@@ -98,9 +102,13 @@ impl Scopes {
         
         None
     }
+
+    pub fn get(&self, id: ScopeId) -> &Scope {
+        &self.scopes[id.0]
+    }
 }
 
-pub fn analyze(root: &ast::Ast, builtins: BuiltinMap) -> Scopes {
+pub fn analyze(root: &'static ast::Ast, builtins: BuiltinMap) -> Scopes {
     let mut ctx = ScopingCtx {
         scopes: Vec::new(),
         node_scopes: NodeScopes::new(),
@@ -111,7 +119,7 @@ pub fn analyze(root: &ast::Ast, builtins: BuiltinMap) -> Scopes {
     let global_scope = ctx.new_scope(ctx.scope);
     ctx.set_scope(root.node_id(), global_scope);
 
-    preorder(root.clone(), |node| {
+    preorder(root, |node| {
         let node_id = node.as_dyn().node_id();
         if let Some(scope) = ctx.node_scope_id(node_id) {
             ctx.scope = scope;
@@ -162,7 +170,7 @@ impl Visitor for ScopingCtx {
     fn visit_expr_entype(&mut self, node: &ast::ExprEntype) {
         self.set_scope(node.ty().node_id(), self.scope);
     }
-    fn visit_expr_var_decl(&mut self, node: &ast::ExprVarDecl) {
+    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
         self.set_scope(node.val().node_id(), self.scope);
         self.add_decl(Declaration {
             name: node.name().name().to_owned(),

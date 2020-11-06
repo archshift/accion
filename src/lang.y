@@ -19,13 +19,15 @@
 %}
 
 %union {
-    ast_program *prgm;
-    ast_expr_list *expr_list;
-    ast_expr *expr;
-    ast_literal *lit;
-    ast_ident *ident;
-    ast_case_list *case_list;
+    const Ast *prgm;
+    const ExprLL *expr_list;
+    Expr expr;
+    const CaseLL *case_list;
+    Literal lit;
+    const Ident *ident;
+
     const char *str;
+    uint64_t num;
 }
 
 %token
@@ -54,11 +56,12 @@
     USTAR
     UMINUS
     COMPOUND
-    FNCALL
-%token <lit> LITERAL
-%token <ident> IDENT
+%token <num> LITERAL_INT
+%token <str> LITERAL_STR
+%token <str> IDENT
 
 %type program
+%type <lit> literal
 %type <expr_list> decl_list arg_list ident_list
 %type <expr> expr decl ident_expr
 %type <case_list> case_list
@@ -77,68 +80,73 @@
 %%
 
 program
-    : decl_list                             { ctx->out_ast = NEW(ast_program, { .exprs = $1 }); }
+    : decl_list                             { ctx->out_ast = ast_create($1); }
     ;
 
 decl_list
-    : decl decl_list                        { $$ = NEW(ast_expr_list, { .head = $1, .tail = $2 }); }
-    | decl                                  { $$ = NEW(ast_expr_list, { .head = $1 }); }
+    : decl decl_list                        { $$ = ast_prepend_expr_list($1, $2); }
+    | decl                                  { $$ = ast_prepend_expr_list($1, NULL); }
     ;
 
 decl
-    : ident_expr ":=" expr                  { $$ = NEW(ast_expr, { .ty = AST_EXPR_VAR_DECL, .name = $1, .val = $3 }); }
-    | ident_expr "~" expr                   { $$ = NEW(ast_expr, { .ty = AST_EXPR_ENTYPE, .name = $1, .val = $3 }); }
-    | LAMBDA "(" ident_list ")" ":=" expr   { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = true, .name = NULL, .arg_names = $3, .val = $6 }); }
+    : ident_expr ":=" expr                  { $$ = ast_add_expr_var_decl($1, $3); }
+    | ident_expr "~" expr                   { $$ = ast_add_expr_entype($1, $3); }
+    | LAMBDA "(" ident_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(true, NULL, $3, $6); }
     | ident_expr "(" ident_list ")" ":=" expr
-                                            { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = true, .name = $1, .arg_names = $3, .val = $6 }); }
+                                            { $$ = ast_add_expr_fn_decl(true, &$1, $3, $6); }
     | ident_expr "!" "(" ident_list ")" ":=" expr
-                                            { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = false, .name = $1, .arg_names = $4, .val = $7 }); }
+                                            { $$ = ast_add_expr_fn_decl(false, &$1, $4, $7); }
     ;
 
 ident_list
-    : ident_expr "," ident_list             { $$ = NEW(ast_expr_list, { .head = $1, .tail = $3 }); }
-    | ident_expr                            { $$ = NEW(ast_expr_list, { .head = $1 }); }
+    : ident_expr "," ident_list             { $$ = ast_prepend_expr_list($1, $3); }
+    | ident_expr                            { $$ = ast_prepend_expr_list($1, NULL); }
     ;
 
 arg_list
-    : expr "," arg_list                     { $$ = NEW(ast_expr_list, { .head = $1, .tail = $3 }); }
-    | expr                                  { $$ = NEW(ast_expr_list, { .head = $1 }); }
-    | "..."                                 { $$ = NEW(ast_expr_list, { .head = NEW(ast_expr, { .ty = AST_EXPR_CURRY }) }); }
+    : expr "," arg_list                     { $$ = ast_prepend_expr_list($1, $3); }
+    | expr                                  { $$ = ast_prepend_expr_list($1, NULL); }
+    | "..."                                 { $$ = ast_prepend_expr_list(ast_add_expr_curry(), NULL); }
     ;
 
 ident_expr
-    : IDENT                                 { $$ = NEW(ast_expr, { .ty = AST_EXPR_IDENT, .ident = $1 }); }
+    : IDENT                                 { $$ = ast_add_expr_ident( ast_add_ident($1) ); }
     ;
 
 expr
-    : "let" decl ";" expr                   { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $2, .op = AST_OP_COMPOUND, .right = $4 }); } %prec COMPOUND
-    | "do" expr ";" expr                    { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $2, .op = AST_OP_COMPOUND, .right = $4 }); } %prec COMPOUND
-    | expr "+" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_ADD, .right = $3 }); }
-    | expr "-" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_SUB, .right = $3 }); }
-    | expr "*" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_MUL, .right = $3 }); }
-    | expr "/" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_DIV, .right = $3 }); }
-    | expr "%" expr                         { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_MOD, .right = $3 }); }
-    | expr "->" expr                        { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_PREPEND, .right = $3 }); }
-    | expr "==" expr                        { $$ = NEW(ast_expr, { .ty = AST_EXPR_BINOP, .left = $1, .op = AST_OP_EQ, .right = $3 }); }
-    | "-" expr                              { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_NEGATE, .inner = $2 }); } %prec UMINUS
-    | "*" expr                              { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_HEAD, .inner = $2 }); } %prec USTAR
-    | expr "->" "..."                       { $$ = NEW(ast_expr, { .ty = AST_EXPR_UNARY, .op = AST_OP_TAIL, .inner = $1 }); }
-    | LITERAL                               { $$ = NEW(ast_expr, { .ty = AST_EXPR_LITERAL, .literal = $1 }); }
+    : "let" decl ";" expr                   { $$ = ast_add_expr_binary($2, BinaryOp_LastUnit, $4); } %prec COMPOUND
+    | "do" expr ";" expr                    { $$ = ast_add_expr_binary($2, BinaryOp_LastUnit, $4); } %prec COMPOUND
+    | expr "+" expr                         { $$ = ast_add_expr_binary($1, BinaryOp_Add, $3); }
+    | expr "-" expr                         { $$ = ast_add_expr_binary($1, BinaryOp_Sub, $3); }
+    | expr "*" expr                         { $$ = ast_add_expr_binary($1, BinaryOp_Mul, $3); }
+    | expr "/" expr                         { $$ = ast_add_expr_binary($1, BinaryOp_Div, $3); }
+    | expr "%" expr                         { $$ = ast_add_expr_binary($1, BinaryOp_Mod, $3); }
+    | expr "->" expr                        { $$ = ast_add_expr_binary($1, BinaryOp_Prepend, $3); }
+    | expr "==" expr                        { $$ = ast_add_expr_binary($1, BinaryOp_Eq, $3); }
+    | "-" expr                              { $$ = ast_add_expr_unary(UnaryOp_Negate, $2); } %prec UMINUS
+    | "*" expr                              { $$ = ast_add_expr_unary(UnaryOp_Head, $2); } %prec USTAR
+    | expr "->" "..."                       { $$ = ast_add_expr_unary(UnaryOp_Tail, $1); }
+    | literal                               { $$ = ast_add_expr_literal($1); }
     | ident_expr                            { $$ = $1; }
     | "(" expr ")"                          { $$ = $2; }
-    | "if" expr "then" expr "else" expr     { $$ = NEW(ast_expr, { .ty = AST_EXPR_IF, .cond = $2, .then = $4, .els = $6 }); }
-    | "if" expr "is" "(" case_list ")"      { $$ = NEW(ast_expr, { .ty = AST_EXPR_IF_CASE, .cond = $2, .cases = $5}); }
-    | expr "(" arg_list ")"                 { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_CALL, .pure_call = true, .callee = $1, .args = $3 }); }
-    | expr "!" "(" arg_list ")"             { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_CALL, .pure_call = false, .callee = $1, .args = $4 }); }
+    | "if" expr "then" expr "else" expr     { $$ = ast_add_expr_if($2, $4, $6); }
+    | "if" expr "is" "(" case_list ")"      { $$ = ast_add_expr_if_case($2, $5); }
+    | expr "(" arg_list ")"                 { $$ = ast_add_expr_fn_call(true, $1, $3 ); }
+    | expr "!" "(" arg_list ")"             { $$ = ast_add_expr_fn_call(false, $1, $4 ); }
     /* adapted from decl below */
-    | ident_expr ":=" expr                  { $$ = NEW(ast_expr, { .ty = AST_EXPR_VAR_DECL, .name = $1, .val = $3 }); }
-    | expr "(" arg_list ")" ":=" expr       { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = true, .name = $1, .arg_names = $3, .val = $6 }); }
-    | expr "!" "(" arg_list ")" ":=" expr   { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = false, .name = $1, .arg_names = $4, .val = $7 }); }
-    | LAMBDA "(" ident_list ")" ":=" expr   { $$ = NEW(ast_expr, { .ty = AST_EXPR_FN_DECL, .pure_decl = true, .name = NULL, .arg_names = $3, .val = $6 }); }
+    | ident_expr ":=" expr                  { $$ = ast_add_expr_var_decl($1, $3); }
+    | expr "(" arg_list ")" ":=" expr       { $$ = ast_add_expr_fn_decl(true, &$1, $3, $6); }
+    | expr "!" "(" arg_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(false, &$1, $4, $7); }
+    | LAMBDA "(" ident_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(true, NULL, $3, $6); }
     ;
 
 case_list
-    : LITERAL "then" expr "," case_list     { $$ = NEW(ast_case_list, { .match = $1, .val = $3, .tail = $5 }); }
-    | LITERAL "then" expr                   { $$ = NEW(ast_case_list, { .match = $1, .val = $3 }); }
-    | "else" expr                           { $$ = NEW(ast_case_list, { .match = NULL, .val = $2 }); }
+    : literal "then" expr "," case_list     { $$ = ast_prepend_case_list(&$1, $3, $5); }
+    | literal "then" expr                   { $$ = ast_prepend_case_list(&$1, $3, NULL); }
+    | "else" expr                           { $$ = ast_prepend_case_list(NULL, $2, NULL); }
+    ;
+
+literal
+    : LITERAL_INT                           { $$ = ast_add_literal_int($1); }
+    | LITERAL_STR                           { $$ = ast_add_literal_str($1); }
     ;
