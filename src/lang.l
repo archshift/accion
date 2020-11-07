@@ -17,6 +17,12 @@
 "else"                                  { return ELSE; }
 "let"                                   { return LET; }
 "do"                                    { return DO; }
+"nil"                                   { return NIL; }
+
+"true"                                  {   yylval->boolean = true;
+                                            return LITERAL_BOOL; }
+"false"                                 {   yylval->boolean = false;
+                                            return LITERAL_BOOL; }
 
 [a-zA-Z_][0-9a-zA-Z_]*                  {   yylval->str = strdup(yytext);
                                             return IDENT; }

@@ -28,6 +28,7 @@
 
     const char *str;
     uint64_t num;
+    bool boolean;
 }
 
 %token
@@ -53,11 +54,13 @@
     SEMI ";"
     TILDE "~"
     EQ "=="
+    NIL "nil"
     USTAR
     UMINUS
     COMPOUND
 %token <num> LITERAL_INT
 %token <str> LITERAL_STR
+%token <boolean> LITERAL_BOOL
 %token <str> IDENT
 
 %type program
@@ -149,4 +152,6 @@ case_list
 literal
     : LITERAL_INT                           { $$ = ast_add_literal_int($1); }
     | LITERAL_STR                           { $$ = ast_add_literal_str($1); }
+    | LITERAL_BOOL                          { $$ = ast_add_literal_bool($1); }
+    | NIL                                   { $$ = ast_add_literal_nil(); }
     ;

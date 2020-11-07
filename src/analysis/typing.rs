@@ -128,13 +128,6 @@ impl Visitor for TypeAnalysis<'_> {
         let ident = node.ident();
         let name = ident.name();
         
-        if name == "nil" {
-            let type_var = self.types.add_typevar();
-            let generic_list = Type::new(BaseType::List(type_var));
-            let generic_list_id = self.types.add(generic_list);
-            self.type_node(node.node_id(), generic_list_id);
-            return;
-        }
         if let Some(builtin) = self.scopes.builtins.get(name) {
             self.type_node(node.node_id(), builtin.ty);
             return;
@@ -306,6 +299,18 @@ impl Visitor for TypeAnalysis<'_> {
     fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
         let ty_id = self.types.add(ANY_STRING);
         self.type_node(node.node_id(), ty_id);
+    }
+
+    fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool) {
+        let ty_id = self.types.add(ANY_BOOL);
+        self.type_node(node.node_id(), ty_id);
+    }
+
+    fn visit_literal_nil(&mut self, node: &'static ast::LiteralNil) {
+        let type_var = self.types.add_typevar();
+        let generic_list = Type::new(BaseType::List(type_var));
+        let generic_list_id = self.types.add(generic_list);
+        self.type_node(node.node_id(), generic_list_id);
     }
 
     fn visit_ident(&mut self, _: &ast::Ident) { }

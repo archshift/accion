@@ -18,9 +18,9 @@ pub trait AstNodeWrap : fmt::Debug {
     fn push_children(&self, dst: &mut Vec<AstNode>);
 }
 
+#[derive(Copy, Clone)]
 pub enum AstNode {
     Ast(&'static Ast),
-    Expr(Expr),
     ExprUnary(&'static ExprUnary),
     ExprBinary(&'static ExprBinary),
     ExprIdent(&'static ExprIdent),
@@ -33,15 +33,15 @@ pub enum AstNode {
     ExprFnCall(&'static ExprFnCall),
     ExprCurry(&'static ExprCurry),
     Ident(&'static Ident),
-    Literal(Literal),
     LiteralInt(&'static LiteralInt),
     LiteralString(&'static LiteralString),
+    LiteralBool(&'static LiteralBool),
+    LiteralNil(&'static LiteralNil),
 }
 impl AstNode {
     pub fn as_dyn(&self) -> &dyn AstNodeWrap {
         match self {
             Self::Ast(n) => n,
-            Self::Expr(n) => n,
             Self::ExprUnary(n) => n,
             Self::ExprBinary(n) => n,
             Self::ExprIdent(n) => n,
@@ -54,9 +54,10 @@ impl AstNode {
             Self::ExprFnCall(n) => n,
             Self::ExprCurry(n) => n,
             Self::Ident(n) => n,
-            Self::Literal(n) => n,
             Self::LiteralInt(n) => n,
             Self::LiteralString(n) => n,
+            Self::LiteralBool(n) => n,
+            Self::LiteralNil(n) => n,
         }
     }
 }
@@ -125,24 +126,32 @@ impl fmt::Debug for Ident {
 pub enum Literal {
     String(&'static LiteralString),
     Int(&'static LiteralInt),
+    Bool(&'static LiteralBool),
+    Nil(&'static LiteralNil),
 }
 impl AstNodeWrap for Literal {
     fn node_id(&self) -> AstNodeId {
         match self {
             Literal::Int(l) => l.node_id(),
             Literal::String(l) => l.node_id(),
+            Literal::Bool(l) => l.node_id(),
+            Literal::Nil(l) => l.node_id(),
         }
     }
     fn as_any(self) -> AstNode {
         match self {
             Literal::Int(l) => l.as_any(),
             Literal::String(l) => l.as_any(),
+            Literal::Bool(l) => l.as_any(),
+            Literal::Nil(l) => l.as_any(),
         }
     }
     fn push_children(&self, dst: &mut Vec<AstNode>) {
         match self {
             Literal::Int(l) => l.push_children(dst),
             Literal::String(l) => l.push_children(dst),
+            Literal::Bool(l) => l.push_children(dst),
+            Literal::Nil(l) => l.push_children(dst),
         }
     }
 }
@@ -151,13 +160,15 @@ impl fmt::Debug for Literal {
         match self {
             Self::String(e) => e.fmt(f),
             Self::Int(e) => e.fmt(f),
+            Self::Bool(e) => e.fmt(f),
+            Self::Nil(e) => e.fmt(f),
         }
     }
 }
 
 pub struct LiteralString(&'static str);
 impl LiteralString {
-    fn val(&self) -> &str {
+    pub fn val(&self) -> &str {
         self.0
     }
 }
@@ -180,7 +191,7 @@ impl fmt::Debug for LiteralString {
 
 pub struct LiteralInt(u64);
 impl LiteralInt {
-    fn val(&self) -> u64 {
+    pub fn val(&self) -> u64 {
         self.0
     }
 }
@@ -197,6 +208,46 @@ impl fmt::Debug for LiteralInt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         SExp::new(f, "literal")?
         .add(&self.val())?
+        .finish()
+    }
+}
+
+pub struct LiteralBool(bool);
+impl LiteralBool {
+    pub fn val(&self) -> bool {
+        self.0
+    }
+}
+impl AstNodeWrap for &'static LiteralBool {
+    fn as_any(self) -> AstNode {
+        AstNode::LiteralBool(self)
+    }
+    fn node_id(&self) -> AstNodeId {
+        AstNodeId(*self as *const LiteralBool as usize)
+    }
+    fn push_children(&self, _: &mut Vec<AstNode>) { }
+}
+impl fmt::Debug for LiteralBool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        SExp::new(f, "literal")?
+        .add(&self.val())?
+        .finish()
+    }
+}
+
+pub struct LiteralNil;
+impl AstNodeWrap for &'static LiteralNil {
+    fn as_any(self) -> AstNode {
+        AstNode::LiteralNil(self)
+    }
+    fn node_id(&self) -> AstNodeId {
+        AstNodeId(*self as *const LiteralNil as usize)
+    }
+    fn push_children(&self, _: &mut Vec<AstNode>) { }
+}
+impl fmt::Debug for LiteralNil {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        SExp::new(f, "literal nil")?
         .finish()
     }
 }
@@ -856,6 +907,20 @@ pub extern fn ast_add_literal_str(s: *const c_char) -> Literal {
         .unwrap();
     Literal::String(
         static_ref(LiteralString(s))
+    )
+}
+
+#[no_mangle]
+pub extern fn ast_add_literal_bool(b: bool) -> Literal {
+    Literal::Bool(
+        static_ref(LiteralBool(b))
+    )
+}
+
+#[no_mangle]
+pub extern fn ast_add_literal_nil() -> Literal {
+    Literal::Nil(
+        static_ref(LiteralNil)
     )
 }
 

@@ -8,7 +8,7 @@ use crate::builtins::BuiltinMap;
 #[derive(Debug)]
 pub struct Declaration {
     pub name: String,
-    scope: ScopeId,
+    pub scope: ScopeId,
     pub node_id: ast::AstNodeId,
     pub impure_fn: bool,
 }
@@ -206,5 +206,7 @@ impl Visitor for ScopingCtx {
     fn visit_expr_ident(&mut self, _: &ast::ExprIdent) {}
     fn visit_literal_int(&mut self, _: &ast::LiteralInt) {}
     fn visit_literal_str(&mut self, _: &ast::LiteralString) {}
+    fn visit_literal_bool(&mut self, _: &ast::LiteralBool) {}
+    fn visit_literal_nil(&mut self, _: &ast::LiteralNil) {}
     fn visit_ident(&mut self, _: &ast::Ident) {}
 }
