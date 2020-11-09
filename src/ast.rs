@@ -4,6 +4,14 @@ use std::ffi;
 use crate::lliter::adapt_ll;
 use crate::sexp::SExp;
 
+#[repr(C)]
+pub struct Location {
+    lline: u32,
+    lcol: u32,
+    rline: u32,
+    rcol: u32
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AstNodeId(usize);
 impl fmt::Debug for AstNodeId {
@@ -96,6 +104,7 @@ impl fmt::Debug for Ast {
 }
 
 pub struct Ident {
+    loc: Location,
     name: &'static str,
 }
 impl Ident {
@@ -166,10 +175,13 @@ impl fmt::Debug for Literal {
     }
 }
 
-pub struct LiteralString(&'static str);
+pub struct LiteralString {
+    loc: Location,
+    val: &'static str,
+}
 impl LiteralString {
     pub fn val(&self) -> &str {
-        self.0
+        self.val
     }
 }
 impl AstNodeWrap for &'static LiteralString {
@@ -189,10 +201,13 @@ impl fmt::Debug for LiteralString {
     }
 }
 
-pub struct LiteralInt(u64);
+pub struct LiteralInt {
+    loc: Location,
+    val: u64,
+}
 impl LiteralInt {
     pub fn val(&self) -> u64 {
-        self.0
+        self.val
     }
 }
 impl AstNodeWrap for &'static LiteralInt {
@@ -212,10 +227,13 @@ impl fmt::Debug for LiteralInt {
     }
 }
 
-pub struct LiteralBool(bool);
+pub struct LiteralBool {
+    loc: Location,
+    val: bool,
+}
 impl LiteralBool {
     pub fn val(&self) -> bool {
-        self.0
+        self.val
     }
 }
 impl AstNodeWrap for &'static LiteralBool {
@@ -235,7 +253,9 @@ impl fmt::Debug for LiteralBool {
     }
 }
 
-pub struct LiteralNil;
+pub struct LiteralNil {
+    loc: Location,
+}
 impl AstNodeWrap for &'static LiteralNil {
     fn as_any(self) -> AstNode {
         AstNode::LiteralNil(self)
@@ -365,6 +385,7 @@ pub enum BinaryOp {
 }
 
 pub struct ExprUnary {
+    loc: Location,
     operator: UnaryOp,
     operand: Expr,
 }
@@ -397,6 +418,7 @@ impl fmt::Debug for ExprUnary {
 }
 
 pub struct ExprBinary {
+    loc: Location,
     operator: BinaryOp,
     left: Expr,
     right: Expr,
@@ -434,6 +456,7 @@ impl fmt::Debug for ExprBinary {
 }
 
 pub struct ExprLiteral {
+    loc: Location,
     literal: Literal
 }
 impl ExprLiteral {
@@ -461,6 +484,7 @@ impl fmt::Debug for ExprLiteral {
 }
 
 pub struct ExprIdent {
+    loc: Location,
     ident: &'static Ident
 }
 impl ExprIdent {
@@ -488,6 +512,7 @@ impl fmt::Debug for ExprIdent {
 }
 
 pub struct ExprIf {
+    loc: Location,
     cond: Expr,
     then_expr: Expr,
     else_expr: Expr
@@ -547,6 +572,7 @@ impl fmt::Debug for IfCase {
 }
 
 pub struct ExprIfCase {
+    loc: Location,
     cond: Expr,
     cases: Option<&'static StaticLL<IfCase>>,
 }
@@ -592,6 +618,7 @@ impl fmt::Debug for ExprIfCase {
 }
 
 pub struct ExprEntype {
+    loc: Location,
     target: Expr,
     ty: Expr
 }
@@ -626,6 +653,7 @@ impl fmt::Debug for ExprEntype {
 }
 
 pub struct ExprVarDecl {
+    loc: Location,
     name: Expr,
     val: Expr
 }
@@ -660,6 +688,7 @@ impl fmt::Debug for ExprVarDecl {
 }
 
 pub struct ExprFnDecl {
+    loc: Location,
     name: Option<Expr>,
     val: Expr,
     args: Option<&'static StaticLL<Expr>>,
@@ -716,6 +745,7 @@ impl fmt::Debug for ExprFnDecl {
 }
 
 pub struct ExprFnCall {
+    loc: Location,
     callee: Expr,
     args: Option<&'static StaticLL<Expr>>,
     pure: bool,
@@ -756,7 +786,9 @@ impl fmt::Debug for ExprFnCall {
     }
 }
 
-pub struct ExprCurry;
+pub struct ExprCurry {
+    loc: Location
+}
 impl AstNodeWrap for &'static ExprCurry {
     fn as_any(self) -> AstNode {
         AstNode::ExprCurry(self)
@@ -794,142 +826,142 @@ pub extern fn ast_create(decls: Option<&'static ExprLL>) -> &'static Ast {
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_literal(literal: Literal) -> Expr {
+pub extern fn ast_add_expr_literal(loc: Location, literal: Literal) -> Expr {
     Expr::Literal(
         static_ref(ExprLiteral {
-            literal
+            loc, literal
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_ident(ident: &'static Ident) -> Expr {
+pub extern fn ast_add_expr_ident(loc: Location, ident: &'static Ident) -> Expr {
     Expr::Ident(
         static_ref(ExprIdent {
-            ident
+            loc, ident
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_unary(operator: UnaryOp, operand: Expr) -> Expr {
+pub extern fn ast_add_expr_unary(loc: Location, operator: UnaryOp, operand: Expr) -> Expr {
     Expr::Unary(
         static_ref(ExprUnary {
-            operator, operand
+            loc, operator, operand
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_binary(left: Expr, operator: BinaryOp, right: Expr) -> Expr {
+pub extern fn ast_add_expr_binary(loc: Location, left: Expr, operator: BinaryOp, right: Expr) -> Expr {
     Expr::Binary(
         static_ref(ExprBinary {
-            left, operator, right
+            loc, left, operator, right
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if(cond: Expr, then_expr: Expr, else_expr: Expr) -> Expr {
+pub extern fn ast_add_expr_if(loc: Location, cond: Expr, then_expr: Expr, else_expr: Expr) -> Expr {
     Expr::If(
         static_ref(ExprIf {
-            cond, then_expr, else_expr
+            loc, cond, then_expr, else_expr
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if_case(cond: Expr, cases: Option<&'static CaseLL>) -> Expr {
+pub extern fn ast_add_expr_if_case(loc: Location, cond: Expr, cases: Option<&'static CaseLL>) -> Expr {
     let cases = cases.map(|e| &e.0);
     Expr::IfCase(
         static_ref(ExprIfCase {
-            cond, cases
+            loc, cond, cases
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_var_decl(name: Expr, val: Expr) -> Expr {
+pub extern fn ast_add_expr_var_decl(loc: Location, name: Expr, val: Expr) -> Expr {
     Expr::VarDecl(
         static_ref(ExprVarDecl {
-            name, val
+            loc, name, val
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_entype(target: Expr, ty: Expr) -> Expr {
+pub extern fn ast_add_expr_entype(loc: Location, target: Expr, ty: Expr) -> Expr {
     Expr::Entype(
         static_ref(ExprEntype {
-            target, ty
+            loc, target, ty
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_decl(pure: bool, name: Option<&Expr>, args: Option<&'static ExprLL>, val: Expr) -> Expr {
+pub extern fn ast_add_expr_fn_decl(loc: Location, pure: bool, name: Option<&Expr>, args: Option<&'static ExprLL>, val: Expr) -> Expr {
     let args = args.map(|e| &e.0);
     Expr::FnDecl(
         static_ref(ExprFnDecl {
-            pure, name: name.copied(), args, val
+            loc, pure, name: name.copied(), args, val
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_call(pure: bool, callee: Expr, args: Option<&'static ExprLL>) -> Expr {
+pub extern fn ast_add_expr_fn_call(loc: Location, pure: bool, callee: Expr, args: Option<&'static ExprLL>) -> Expr {
     let args = args.map(|e| &e.0);
     Expr::FnCall(
         static_ref(ExprFnCall {
-            pure, callee, args
+            loc, pure, callee, args
         })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_curry() -> Expr {
+pub extern fn ast_add_expr_curry(loc: Location, ) -> Expr {
     Expr::Curry(
-        static_ref(ExprCurry)
+        static_ref(ExprCurry { loc })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_int(val: u64) -> Literal {
+pub extern fn ast_add_literal_int(loc: Location, val: u64) -> Literal {
     Literal::Int(
-        static_ref(LiteralInt(val))
+        static_ref(LiteralInt { loc, val })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_str(s: *const c_char) -> Literal {
+pub extern fn ast_add_literal_str(loc: Location, s: *const c_char) -> Literal {
     let s = unsafe { ffi::CStr::from_ptr(s) }
         .to_str()
         .unwrap();
     Literal::String(
-        static_ref(LiteralString(s))
+        static_ref(LiteralString { loc, val: s })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_bool(b: bool) -> Literal {
+pub extern fn ast_add_literal_bool(loc: Location, b: bool) -> Literal {
     Literal::Bool(
-        static_ref(LiteralBool(b))
+        static_ref(LiteralBool { loc, val: b })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_nil() -> Literal {
+pub extern fn ast_add_literal_nil(loc: Location) -> Literal {
     Literal::Nil(
-        static_ref(LiteralNil)
+        static_ref(LiteralNil { loc })
     )
 }
 
 #[no_mangle]
-pub extern fn ast_add_ident(name: *const c_char) -> &'static Ident {
+pub extern fn ast_add_ident(loc: Location, name: *const c_char) -> &'static Ident {
     let name = unsafe { ffi::CStr::from_ptr(name) }
         .to_str()
         .unwrap();
-    static_ref(Ident { name })
+    static_ref(Ident { loc, name })
 }
 
 #[no_mangle]

@@ -2,10 +2,23 @@
     #include "lang.tab.h"
 
     #include <string.h>
+
+    #define YY_USER_ACTION do { \
+        yylloc->first_line = yylloc->last_line; \
+        yylloc->first_column = yylloc->last_column; \
+        char *txt, *prev = yytext; \
+        while ((txt = strchr(prev, '\n'))) { \
+            yylloc->last_line++; \
+            yylloc->last_column = 0; \
+            prev = txt + 1; \
+        } \
+        yylloc->last_column += strlen(prev); \
+    } while (0);
 %}
 
 %option reentrant
 %option bison-bridge
+%option bison-locations
 %option noyywrap
 %option yylineno
 
