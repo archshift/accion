@@ -86,25 +86,28 @@ pub struct Scopes {
 }
 
 impl Scopes {
-    pub fn node_scope(&self, node: ast::AstNodeId) -> Option<&Scope> {
-        self.node_scopes.get(&node)
-            .map(|id| &self.scopes[id.0])
+    pub fn node_scope(&self, node: ast::AstNodeId) -> Option<ScopeId> {
+        self.node_scopes.get(&node).copied()
     }
 
-    pub fn resolve<'a>(&'a self, mut scope: &'a Scope, name: &str) -> Option<&'a Declaration> {
-        while {
-            let decl = scope.decls.get(name);
+    pub fn resolve<'a>(&'a self, mut scope_id: ScopeId, name: &str) -> Option<&'a Declaration> {
+        while scope_id.0 != !0 {
+            let scope = &self.scopes[scope_id.0];
+            let decl = scope.resolve(name);
             if decl.is_some() {
                 return decl
             }
-            scope.parent.0 != !0
-        } { scope = &self.scopes[scope.parent.0] }
-        
+            scope_id = scope.parent;
+        }
         None
     }
 
     pub fn get(&self, id: ScopeId) -> &Scope {
         &self.scopes[id.0]
+    }
+
+    pub fn global() -> ScopeId {
+        ScopeId(0)
     }
 }
 

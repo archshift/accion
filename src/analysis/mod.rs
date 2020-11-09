@@ -1,5 +1,6 @@
 pub mod scoping;
 pub mod typing;
+pub mod constexpr;
 
 use crate::ast;
 

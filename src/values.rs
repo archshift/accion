@@ -10,8 +10,10 @@ use crate::types::TypeId;
 use crate::lliter::adapt_ll;
 
 pub type FnArgs = SmallVec<[Value; 4]>;
-#[derive(Clone, Debug, PartialEq, Eq)]
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct ValList(Option<Rc<ValListItem>>);
+
 impl ValList {
     pub fn empty() -> Self {
         Self(None)
@@ -23,8 +25,40 @@ impl ValList {
             |i| i.tail.0.as_ref().map(|i| i.as_ref()))
         .map(|i| &i.head)
     }
+
+    pub fn prepended(&self, new_head: Value) -> ValList {
+        ValList(Some(Rc::new(ValListItem {
+            head: new_head,
+            tail: self.clone()
+        })))
+    }
+    
+    pub fn head(&self) -> Option<&Value> {
+        self.0.as_ref().map(|i| &i.head)
+    }
+    pub fn tail(&self) -> ValList {
+        let opt_item = self.0.as_ref()
+            .and_then(|i| i.tail.0.clone());
+        ValList(opt_item)
+    }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl fmt::Debug for ValList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut iter = self.iter();
+        if let Some(head) = iter.next() {
+            write!(f, "{:?}", head)?;
+        } else {
+            write!(f, "nil")?;
+        }
+
+        for item in iter {
+            write!(f, " <- {:?}", item)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 struct ValListItem {
     head: Value,
     tail: ValList,

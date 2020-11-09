@@ -9,7 +9,7 @@ mod id_map;
 mod types;
 mod values;
 
-use crate::analysis::{scoping, typing};
+use crate::analysis::{scoping, typing, constexpr};
 
 fn main() {
     let res = parser::parse_stdin();
@@ -18,7 +18,7 @@ fn main() {
         let builtins = builtins::make_builtins(&mut types);
         let scopes = scoping::analyze(&ast, builtins);
         println!("{:#?}", scopes);
-        let types = typing::analyze(&ast, types, &scopes);
+        let mut types = typing::analyze(&ast, types, &scopes);
         println!("{:#?}", types);
 
         analysis::preorder(ast, |node| {
@@ -26,5 +26,7 @@ fn main() {
                 println!("{:30}  ~  {:?}", types.store.format_ty(ty), node);
             }
         });
+
+        constexpr::analyze(&ast, &scopes, &mut types);
     }
 }

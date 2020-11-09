@@ -105,7 +105,7 @@ impl Visitor for TypeAnalysis<'_> {
 
         let name = target.name();
         let scope = self.scopes.node_scope(node.node_id()).unwrap();
-        let decl = scope.resolve(name);
+        let decl = self.scopes.resolve(scope, name);
         if decl.is_none() {
             panic!("Error: could not find ident `{}` in scope", name);
         }
