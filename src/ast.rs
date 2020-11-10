@@ -11,6 +11,11 @@ pub struct Location {
     rline: u32,
     rcol: u32
 }
+impl fmt::Debug for Location {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "input:{}:{} .. {}:{}", self.lline, self.lcol, self.rline, self.rcol)
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AstNodeId(usize);
@@ -108,8 +113,11 @@ pub struct Ident {
     name: &'static str,
 }
 impl Ident {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         self.name
+    }
+    pub fn loc(&self) -> &Location {
+        &self.loc
     }
 }
 impl AstNodeWrap for &'static Ident {
@@ -396,6 +404,9 @@ impl ExprUnary {
     pub fn operand(&self) -> Expr {
         self.operand
     }
+    pub fn loc(&self) -> &Location {
+        &self.loc
+    }
 }
 impl AstNodeWrap for &'static ExprUnary {
     fn as_any(self) -> AstNode {
@@ -661,9 +672,11 @@ impl ExprVarDecl {
     pub fn name(&self) -> &'static Ident {
         self.name.unwrap_ident()
     }
-
     pub fn val(&self) -> Expr {
         self.val
+    }
+    pub fn loc(&self) -> &Location {
+        &self.loc
     }
 }
 impl AstNodeWrap for &'static ExprVarDecl {
@@ -706,9 +719,11 @@ impl ExprFnDecl {
         adapt_ll(self.args, |e| e.tail)
             .map(|e| e.head.unwrap_ident())
     }
-
     pub fn pure(&self) -> bool {
         self.pure
+    }
+    pub fn loc(&self) -> &Location {
+        &self.loc
     }
 }
 impl AstNodeWrap for &'static ExprFnDecl {
@@ -754,14 +769,15 @@ impl ExprFnCall {
     pub fn callee(&self) -> Expr {
         self.callee
     }
-
     pub fn args(&self) -> impl Iterator<Item=Expr> {
         adapt_ll(self.args, |e| e.tail)
             .map(|n| *n.head)
     }
-
     pub fn pure(&self) -> bool {
         self.pure
+    }
+    pub fn loc(&self) -> &Location {
+        &self.loc
     }
 }
 impl AstNodeWrap for &'static ExprFnCall {

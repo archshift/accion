@@ -30,10 +30,6 @@ impl Scope {
     pub fn resolve<'a>(&'a self, name: &str) -> Option<&'a Declaration> {
         self.decls.get(name)
     }
-
-    pub fn decls(&self) -> impl Iterator<Item=&Declaration> {
-        self.decls.values()
-    }
 }
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -100,14 +96,6 @@ impl Scopes {
             scope_id = scope.parent;
         }
         None
-    }
-
-    pub fn get(&self, id: ScopeId) -> &Scope {
-        &self.scopes[id.0]
-    }
-
-    pub fn global() -> ScopeId {
-        ScopeId(0)
     }
 }
 

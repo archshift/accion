@@ -1,89 +1,101 @@
 use std::collections::HashMap;
 use std::mem;
+use std::rc::Rc;
+use std::cell::RefCell;
 
-use crate::ast::{self, AstNodeWrap};
+use derive_newtype::NewType;
+
+use crate::ast;
 use crate::analysis::{Visitor};
-use crate::analysis::scoping::{Scopes, ScopeId};
 use crate::analysis::typing::Types;
 use crate::values::{self, Value};
+
+#[derive(NewType, Debug, Clone)]
+struct RcEnv(Rc<RefCell<Environment>>);
+impl RcEnv {
+    fn new(parent: Option<RcEnv>) -> Self {
+        Self(Rc::new(RefCell::new(
+            Environment {
+                inner: HashMap::new(),
+                parent
+            }
+        )))
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct Environment {
     inner: HashMap<String, Value>,
+    parent: Option<RcEnv>,
 }
 
 impl Environment {
-    fn from_scope(scopes: &Scopes, id: ScopeId) -> Self {
-        let mut out = Self {
-            inner: HashMap::new(),
-        };
-        let scope = scopes.get(id);
-        for decl in scope.decls() {
-            out.inner.insert(decl.name.clone(), Value::Undefined);
-        }
-        out
-    }
-    fn add(&mut self, name: &'static str, val: Value) {
+    fn add(&mut self, name: &'static str, val: Value) -> Result<(), String> {
         let old = self.inner.insert(name.into(), val);
-        if let Some(Value::Undefined) = old {}
-        else { panic!("Attempted redefine value `{}` (prev={:?}, new={:?}) in same scope!", name, old, self.inner[name]) }
+        match old {
+            None => Ok(()),
+            _ => Err(format!("Attempted redefine value `{}` (prev={:?}, new={:?}) in same scope!",
+                    name, old, self.inner[name])),
+        }
     }
-    fn get(&self, name: &'static str) -> &Value {
-        &self.inner[name]
+}
+
+fn err_recover<V>(res: Result<V, String>, loc: &ast::Location, or: V) -> V {
+    match res {
+        Ok(out) => out,
+        Err(e) => { eprintln!("error: {:?}  {}", loc, e); or }
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Interpreter<'a> {
-    pub(crate) environments: HashMap<ScopeId, Vec<Environment>>,
-    pub(crate) frames: Vec<ScopeId>,
-    pub(crate) scopes: &'a Scopes,
-    pub(crate) types: &'a mut Types,
+    frames: Vec<RcEnv>,
     yield_val: Value,
+    pub(crate) types: &'a mut Types,
 }
 impl Interpreter<'_> {
-    fn top_frame(&mut self) -> &mut Environment {
-        let scope = self.frames.last().unwrap();
-        self.environments.get_mut(scope)
-            .unwrap()
-            .last_mut()
-            .unwrap()
-    }
-    fn push_frame(&mut self, scope: ScopeId) {
-        self.frames.push(scope);
-        let env = self.environments
-            .entry(scope)
-            .or_insert_with(Vec::new);
-        env.push(Environment::from_scope(self.scopes, scope));
+    fn push_frame(&mut self) {
+        let parent = self.frames.last().cloned();
+        self.frames.push(RcEnv::new(parent))
     }
     fn pop_frame(&mut self) {
-        if let Some(frame) = self.frames.pop() {
-            self.environments.get_mut(&frame)
-                .unwrap()
-                .pop();
-        }
+        self.frames.pop();
     }
-    fn define(&mut self, name: &'static str, val: Value) {
-        self.top_frame()
+    fn define(&mut self, name: &'static str, val: Value) -> Result<(), String> {
+        self.frames.last()
+            .unwrap()
+            .borrow_mut()
             .add(name, val)
     }
     fn take_yield(&mut self) -> Value {
         mem::replace(&mut self.yield_val, Value::Undefined)
     }
+    
+    fn get(&self, name: &'static str) -> Result<Value, String> {
+        let mut parent = self.frames.last()
+            .map(|p| p.clone());
+            
+        while let Some(p) = parent {
+            let env = p.borrow();
+            if let Some(val) = env.inner.get(name) {
+                return Ok(val.clone())
+            }
+
+            parent = env.parent.clone();
+        }
+        Err(format!("Could not find value with name `{}`!", name))
+    }
 }
 
-pub fn analyze(ast: &'static ast::Ast, scopes: &Scopes, types: &mut Types) {
+pub fn analyze(ast: &'static ast::Ast, types: &mut Types) {
     let mut ctx = Interpreter {
         frames: Vec::new(),
-        environments: HashMap::new(),
-        scopes,
         types,
         yield_val: Value::Undefined
     };
-    ctx.push_frame(Scopes::global());
+    ctx.push_frame();
     ctx.visit_ast(ast);
     dbg!(ctx.frames);
-    dbg!(ctx.environments);
 }
 
 impl Visitor for Interpreter<'_> {
@@ -100,21 +112,27 @@ impl Visitor for Interpreter<'_> {
                 _ => Value::Undefined
             },
             ast::BinaryOp::Sub => match (left, right) {
-                (Value::Int(left), Value::Int(right)) => Value::Int(left - right),
+                (Value::Int(left), Value::Int(right)) => Value::Int(left.wrapping_sub(right)),
                 _ => Value::Undefined
             },
             ast::BinaryOp::Mul => match (left, right) {
                 (Value::Int(left), Value::Int(right)) => Value::Int(left * right),
                 _ => Value::Undefined
             },
-            ast::BinaryOp::Div => unimplemented!(),
-            ast::BinaryOp::Mod => unimplemented!(),
+            ast::BinaryOp::Div => match (left, right) {
+                (Value::Int(left), Value::Int(right)) => Value::Int(left / right),
+                _ => Value::Undefined
+            },
+            ast::BinaryOp::Mod => match (left, right) {
+                (Value::Int(left), Value::Int(right)) => Value::Int(left % right),
+                _ => Value::Undefined
+            },
             ast::BinaryOp::Eq => Value::Bool(left == right),
             ast::BinaryOp::Prepend => match right {
                 Value::List(list) => Value::List(list.prepended(left)),
                 _ => Value::Undefined
             },
-            ast::BinaryOp::LastUnit => unimplemented!(),
+            ast::BinaryOp::LastUnit => right,
         };
     }
     fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary) {
@@ -124,38 +142,47 @@ impl Visitor for Interpreter<'_> {
         
         self.yield_val = match node.operator() {
             ast::UnaryOp::Head => match operand {
-                Value::List(list) => list.head().unwrap().clone(),
-                _ => unimplemented!()
+                Value::List(list) => {
+                    let res = list.head()
+                        .ok_or_else(|| "Taking head of empty list!".to_owned());
+                    err_recover(res, node.loc(), &Value::Undefined)
+                        .clone()
+                }
+                _ => Value::Undefined,
             },
             ast::UnaryOp::Tail => match operand {
                 Value::List(list) => Value::List(list.tail()),
-                _ => unimplemented!()
+                _ => Value::Undefined,
             },
-            ast::UnaryOp::Negate => unimplemented!(),
+            ast::UnaryOp::Negate => match operand {
+                Value::Int(val) => Value::Int(!val + 1),
+                _ => Value::Undefined
+            },
         };
     }
     fn visit_expr_fn_call(&mut self, node: &'static ast::ExprFnCall) {
         self.visit_expr(node.callee());
         let callee = self.take_yield();
-        let callee_node = if let Value::Fn(callee_node) = callee {
-            callee_node
-        } else {
-            unreachable!()
-        };
-        let callee_val = callee_node.val();
 
         let arg_vals: values::FnArgs = node.args()
             .map(|e| { self.visit_expr(e); self.take_yield() })
             .collect();
         let arg_vals = arg_vals.into_iter();
+
+        let callee_node = if let Value::Fn(callee_node) = callee {
+            callee_node
+        } else {
+            self.yield_val = Value::Undefined;
+            return
+        };
+        let callee_val = callee_node.val();
         let arg_names = callee_node.args()
             .map(|a| a.name());
         
-        let new_scope = self.scopes.node_scope(callee_val.node_id())
-            .unwrap();
-        self.push_frame(new_scope);
+        self.push_frame();
         for (name, val) in arg_names.zip(arg_vals) {
-            self.define(name, val)
+            let res = self.define(name, val);
+            err_recover(res, node.loc(), ());
         }
 
         self.visit_expr(callee_val);
@@ -204,13 +231,15 @@ impl Visitor for Interpreter<'_> {
         self.visit_expr(node.val());
         let val = self.take_yield();
         let name = node.name();
-        self.define(name.name(), val);
+        let res = self.define(name.name(), val);
+        err_recover(res, node.loc(), ());
     }
 
     fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
         let val = Value::Fn(node);
         if let Some(name) = node.name() {
-            self.define(name.name(), val.clone());
+            let res = self.define(name.name(), val.clone());
+            err_recover(res, node.loc(), ());
         }
         self.yield_val = val;
     }
@@ -239,17 +268,7 @@ impl Visitor for Interpreter<'_> {
     }
     fn visit_ident(&mut self, node: &'static ast::Ident) {
         let name = node.name();
-        let scope = self.frames.last().unwrap();
-        let decl = self.scopes.resolve(*scope, name)
-            .unwrap();
-        // Only support referencing either global or immediately local vars for now
-        assert!(Some(&decl.scope) == self.frames.last()
-             || Some(&decl.scope) == self.frames.first());
-        self.yield_val =
-            self.environments[&decl.scope]
-            .last()
-            .expect("Could not find frame for decl!")
-            .get(name)
-            .clone();
+        let res = self.get(name);
+        self.yield_val = err_recover(res, node.loc(), Value::Undefined);
     }
 }

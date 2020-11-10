@@ -32,7 +32,7 @@ impl ValList {
             tail: self.clone()
         })))
     }
-    
+
     pub fn head(&self) -> Option<&Value> {
         self.0.as_ref().map(|i| &i.head)
     }
@@ -52,7 +52,7 @@ impl fmt::Debug for ValList {
         }
 
         for item in iter {
-            write!(f, " <- {:?}", item)?;
+            write!(f, " -> {:?}", item)?;
         }
         Ok(())
     }

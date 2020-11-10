@@ -9,7 +9,7 @@
         char *txt, *prev = yytext; \
         while ((txt = strchr(prev, '\n'))) { \
             yylloc->last_line++; \
-            yylloc->last_column = 0; \
+            yylloc->last_column = 1; \
             prev = txt + 1; \
         } \
         yylloc->last_column += strlen(prev); \
@@ -20,7 +20,6 @@
 %option bison-bridge
 %option bison-locations
 %option noyywrap
-%option yylineno
 
 %%
 
