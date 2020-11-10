@@ -8,6 +8,7 @@ mod builtins;
 mod id_map;
 mod types;
 mod values;
+mod interpreter;
 
 use std::env::args;
 use crate::analysis::{scoping, typing, constexpr};
@@ -53,5 +54,5 @@ fn main() {
         return
     }
 
-    constexpr::analyze(&ast, &mut types);
+    constexpr::analyze(&ast, &mut types, &scopes.builtins);
 }

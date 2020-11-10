@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::char;
+use std::convert::TryInto;
 
 use crate::types::{Type, TypeId, TypeStore, BaseType, Purity, FnArgTypes};
-use crate::values::Value;
-use crate::analysis::constexpr;
+use crate::values::{Value, ValList};
 
 pub type BuiltinMap = HashMap<String, Builtin>;
 
@@ -24,6 +25,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     let bool_id = types.add(Type::new(BaseType::Bool));
     let meta_id = types.add(Type { base: BaseType::Type, purity: Purity::Pure });
     let meta_list = types.add(Type::new(BaseType::List(meta_id)));
+    let int_list = types.add(Type::new(BaseType::List(int_id)));
 
     let mut add_syscall = |name: &str, num_args: usize| {
         let syscall_args = FnArgTypes::from_elem(int_id, num_args);
@@ -50,9 +52,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
                 meta_id
             ))
         ),
-        Value::BuiltinFn(|args, interp| {
-            let interp: &mut constexpr::Interpreter = interp.downcast_mut().unwrap();
-
+        Value::TypeFn(|args, types| {
             if let &[ Value::List(ref l) ] = &args[..] {
                 let mut fn_types: FnArgTypes = l.iter()
                     .map(|v|
@@ -63,7 +63,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
                 let ret = fn_types.pop()
                     .expect("Builtin `Fn` should always have a return type");
 
-                Value::Type(interp.types.store.add(Type {
+                Value::Type(types.add(Type {
                     base: BaseType::Fn(fn_types, ret),
                     purity: Purity::Pure
                 }))
@@ -78,16 +78,74 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
             FnArgTypes::from_slice(&[meta_id]),
             meta_id
         ))),
-        Value::BuiltinFn(|args, interp| {
-            let interp: &mut constexpr::Interpreter = interp.downcast_mut().unwrap();
-
+        Value::TypeFn(|args, types| {
             if let &[ Value::Type(t) ] = &args[..] {
-                Value::Type(interp.types.store.add(Type {
+                Value::Type(types.add(Type {
                     base: BaseType::List(t),
                     purity: Purity::Pure
                 }))
             } else {
                 panic!("Error: Should only call builtin `List` with one arg: `InnerType`");
+            }
+        })
+    );
+
+    let dbg_typevar = types.add_typevar();
+    add_builtin("debug",
+        types.add(Type::new(BaseType::Fn(
+            FnArgTypes::from_slice(&[dbg_typevar]),
+            dbg_typevar
+        ))),
+        Value::BuiltinFn(|mut args, _interp| {
+            if args.len() != 1 {
+                panic!("Error: Should only call builtin `chars` with one arg");
+            }
+            let val = args.pop().unwrap();
+            eprintln!("dbg: {:?}", val);
+            val
+        })
+    );
+
+    add_builtin("chars",
+        types.add(Type::new(BaseType::Fn(
+            FnArgTypes::from_slice(&[str_id]),
+            int_list
+        ))),
+        Value::BuiltinFn(|args, _interp| {
+            if let &[ Value::String(ref s) ] = &args[..] {
+                let mut head = ValList::empty();
+                for c in s.chars().rev() {
+                    head = head.prepended(Value::Int(c as u64))
+                }
+                Value::List(head)
+            } else {
+                panic!("Error: Should only call builtin `chars` with one arg: `Str`");
+            }
+        })
+    );
+
+    add_builtin("from_chars",
+        types.add(Type::new(BaseType::Fn(
+            FnArgTypes::from_slice(&[int_list]),
+            str_id
+        ))),
+        Value::BuiltinFn(|args, _interp| {
+            if let &[ Value::List(ref l) ] = &args[..] {
+                let mut out = String::new();
+                for item in l.iter() {
+                    if let Value::Int(c) = item {
+                        if let Ok(c32) = (*c).try_into() {
+                            if let Some(c) = char::from_u32(c32) {
+                                out.push(c);
+                                continue;
+                            }
+                        }
+                    }
+                    panic!("Error: Items in list passed to `chars` are not valid Unicode!");
+                }
+                Value::String(out)
+            } else {
+                panic!("Error: Should only call builtin `chars` with one arg: `Str`");
             }
         })
     );

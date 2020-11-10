@@ -9,6 +9,8 @@ use crate::ast::{self, AstNodeWrap};
 use crate::analysis::{Visitor};
 use crate::analysis::typing::Types;
 use crate::values::{self, Value};
+use crate::builtins::BuiltinMap;
+use crate::interpreter::Interpreter;
 
 #[derive(NewType, Debug, Clone)]
 struct RcEnv(Rc<RefCell<Environment>>);
@@ -30,7 +32,7 @@ pub(crate) struct Environment {
 }
 
 impl Environment {
-    fn add(&mut self, name: &'static str, val: Value) -> Result<(), String> {
+    fn add(&mut self, name: &str, val: Value) -> Result<(), String> {
         let old = self.inner.insert(name.into(), val);
         match old {
             None => Ok(()),
@@ -48,12 +50,12 @@ fn err_recover<V>(res: Result<V, String>, loc: &ast::Location, or: V) -> V {
 }
 
 #[derive(Debug)]
-pub(crate) struct Interpreter<'a> {
+pub(crate) struct ConstEvalCtx<'a> {
     frames: Vec<RcEnv>,
     yield_val: Value,
     pub(crate) types: &'a mut Types,
 }
-impl Interpreter<'_> {
+impl Interpreter for ConstEvalCtx<'_> {
     fn push_frame(&mut self) {
         let parent = self.frames.last().cloned();
         self.frames.push(RcEnv::new(parent))
@@ -61,16 +63,12 @@ impl Interpreter<'_> {
     fn pop_frame(&mut self) {
         self.frames.pop();
     }
-    fn define(&mut self, name: &'static str, val: Value) -> Result<(), String> {
+    fn define(&mut self, name: &str, val: Value) -> Result<(), String> {
         self.frames.last()
             .unwrap()
             .borrow_mut()
             .add(name, val)
     }
-    fn take_yield(&mut self) -> Value {
-        mem::replace(&mut self.yield_val, Value::Undefined)
-    }
-    
     fn get(&self, name: &'static str) -> Result<Value, String> {
         let mut parent = self.frames.last()
             .map(|p| p.clone());
@@ -86,19 +84,30 @@ impl Interpreter<'_> {
         Err(format!("Could not find value with name `{}`!", name))
     }
 }
+impl ConstEvalCtx<'_> {
+    fn take_yield(&mut self) -> Value {
+        mem::replace(&mut self.yield_val, Value::Undefined)
+    }
+}
 
-pub fn analyze(ast: &'static ast::Ast, types: &mut Types) {
-    let mut ctx = Interpreter {
+pub fn analyze(ast: &'static ast::Ast, types: &mut Types, builtins: &BuiltinMap) {
+    let mut ctx = ConstEvalCtx {
         frames: Vec::new(),
         types,
         yield_val: Value::Undefined
     };
     ctx.push_frame();
+
+    for (name, builtin) in builtins {
+        ctx.define(name, builtin.val.clone())
+            .unwrap();
+    }
+
     ctx.visit_ast(ast);
     dbg!(ctx.frames);
 }
 
-impl Visitor for Interpreter<'_> {
+impl Visitor for ConstEvalCtx<'_> {
     fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary) {
         let (left, right) = node.operands();
         self.visit_expr(left);
@@ -167,26 +176,31 @@ impl Visitor for Interpreter<'_> {
         let arg_vals: values::FnArgs = node.args()
             .map(|e| { self.visit_expr(e); self.take_yield() })
             .collect();
-        let arg_vals = arg_vals.into_iter();
 
-        let callee_node = if let Value::Fn(callee_node) = callee {
-            callee_node
-        } else {
-            self.yield_val = Value::Undefined;
-            return
+        match callee {
+            Value::Fn(callee_node) => {
+                let arg_vals = arg_vals.into_iter();
+                let callee_val = callee_node.val();
+                let arg_names = callee_node.args()
+                    .map(|a| a.name());
+                
+                self.push_frame();
+                for (name, val) in arg_names.zip(arg_vals) {
+                    let res = self.define(name, val);
+                    err_recover(res, node.loc(), ());
+                }
+
+                self.visit_expr(callee_val);
+                self.pop_frame();
+            }
+            Value::TypeFn(func) => {
+                self.yield_val = func(arg_vals, &mut self.types.store)
+            }
+            Value::BuiltinFn(func) => {
+                self.yield_val = func(arg_vals, self)
+            }
+            _ => { self.yield_val = Value::Undefined; return; }
         };
-        let callee_val = callee_node.val();
-        let arg_names = callee_node.args()
-            .map(|a| a.name());
-        
-        self.push_frame();
-        for (name, val) in arg_names.zip(arg_vals) {
-            let res = self.define(name, val);
-            err_recover(res, node.loc(), ());
-        }
-
-        self.visit_expr(callee_val);
-        self.pop_frame();
     }
     
     fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
@@ -255,7 +269,7 @@ impl Visitor for Interpreter<'_> {
     }
 
     fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
-        self.yield_val = Value::String(node.val())
+        self.yield_val = Value::String(node.val().into())
     }
     fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
         self.yield_val = Value::Int(node.val())

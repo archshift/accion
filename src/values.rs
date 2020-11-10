@@ -1,6 +1,5 @@
 use std::cmp::{PartialEq, Eq};
 use std::ptr;
-use std::any::Any;
 use std::fmt;
 use std::rc::Rc;
 use smallvec::SmallVec;
@@ -8,6 +7,8 @@ use smallvec::SmallVec;
 use crate::ast;
 use crate::types::TypeId;
 use crate::lliter::adapt_ll;
+use crate::interpreter::Interpreter;
+use crate::types::TypeStore;
 
 pub type FnArgs = SmallVec<[Value; 4]>;
 
@@ -70,11 +71,12 @@ struct ValListItem {
 pub enum Value {
     Int(u64),
     Bool(bool),
-    String(&'static str),
+    String(String),
     Type(TypeId),
     List(ValList),
     Fn(&'static ast::ExprFnDecl),
-    BuiltinFn(fn(FnArgs, &mut dyn Any) -> Value),
+    TypeFn(fn(FnArgs, &mut TypeStore) -> Value),
+    BuiltinFn(fn(FnArgs, &mut dyn Interpreter) -> Value),
     Undefined,
 }
 
@@ -103,6 +105,7 @@ impl fmt::Debug for Value {
             Value::Type(t) => write!(f, "Value(Type {:?})", t),
             Value::List(fn_) => write!(f, "Value({:?})", fn_),
             Value::Fn(fn_) => write!(f, "Value(Fn {:?})", fn_),
+            Value::TypeFn(_) => write!(f, "Value(TypeFn)"),
             Value::BuiltinFn(_) => write!(f, "Value(BuiltinFn)"),
             Value::Undefined => write!(f, "Value(Undefined)"),
         }
