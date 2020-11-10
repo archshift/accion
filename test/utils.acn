@@ -1,0 +1,52 @@
+map(fn, iter) :=
+    if iter == nil then
+        nil
+    else
+        fn(*iter) -> map(fn, iter->...)
+
+reduce(fn, acc, iter) :=
+    if iter == nil then
+        acc
+    else
+        let new_acc := fn(acc, *iter);
+        reduce(fn, new_acc, iter->...)
+
+foreach(list, fn) :=
+    if list == nil then
+        nil
+    else
+        do fn(*list);
+        foreach(list->..., fn)
+
+arange(max) :=
+    let arange_inner(i) :=
+        if i == max then nil
+        else i -> arange_inner(i + 1);
+    arange_inner(0)
+
+reverse(list) :=
+    let reverse_inner(list, acc) :=
+        if list == nil then
+            acc
+        else
+            reverse_inner(list->..., *list -> acc);
+    reverse_inner(list, nil)
+
+list_split_first(l, by) :=
+    let inner(seen, next) :=
+        if next == nil then
+            ( reverse(seen) -> next -> nil )
+        else if *next == by then
+            ( reverse(seen) -> (next -> ...) -> nil )
+        else
+            inner(*next -> seen, next->...);
+    inner(nil, l)
+
+list_split(l, by) :=
+    if l == nil then
+        nil
+    else
+        let pair := list_split_first(l, by);
+        *pair -> list_split(*(pair->...), by)
+
+
