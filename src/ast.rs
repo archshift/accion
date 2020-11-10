@@ -28,11 +28,82 @@ impl fmt::Debug for AstNodeId {
 pub trait AstNodeWrap : fmt::Debug {
     fn node_id(&self) -> AstNodeId;
     fn as_any(self) -> AstNode;
+    fn loc(&self) -> &Location;
     fn push_children(&self, dst: &mut Vec<AstNode>);
 }
 
-#[derive(Copy, Clone)]
-pub enum AstNode {
+pub struct Ast {
+    decls: Option<&'static StaticLL<Expr>>,
+}
+impl Ast {
+    pub fn decls(&self) -> impl Iterator<Item=&'static Expr> {
+        adapt_ll(self.decls, |e| e.tail)
+            .map(|n| n.head)
+    }
+}
+impl AstNodeWrap for &'static Ast {
+    fn as_any(self) -> AstNode {
+        AstNode::Ast(self)
+    }
+    fn node_id(&self) -> AstNodeId {
+        AstNodeId(*self as *const Ast as usize)
+    }
+    fn loc(&self) -> &Location {
+        unimplemented!()
+    }
+    fn push_children(&self, dst: &mut Vec<AstNode>) {
+        dst.extend(self.decls().map(|d| d.as_any()));
+    }
+}
+impl fmt::Debug for Ast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        SExp::new(f, "program")?
+            .add_all(self.decls())?
+            .finish()
+    }
+}
+
+
+macro_rules! node_select {
+    ($name:ident, [ $( $elem:ident($ty:ty) ),* ]) => {
+        #[derive(Copy, Clone)]
+        #[repr(C)]
+        pub enum $name {
+            $( $elem($ty), )*
+        }
+        impl AstNodeWrap for $name {
+            fn node_id(&self) -> AstNodeId {
+                match self {
+                    $( Self::$elem(e) => e.node_id(), )*
+                }
+            }
+            fn as_any(self) -> AstNode {
+                match self {
+                    $( Self::$elem(e) => e.as_any(), )*
+                }
+            }
+            fn loc(&self) -> &Location {
+                match self {
+                    $( Self::$elem(e) => e.loc(), )*
+                }
+            }
+            fn push_children(&self, dst: &mut Vec<AstNode>) {
+                match self {
+                    $( Self::$elem(e) => e.push_children(dst), )*
+                }
+            }
+        }
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match self {
+                    $( Self::$elem(e) => e.fmt(f), )*
+                }
+            }
+        }
+    };
+}
+
+node_select!(AstNode, [
     Ast(&'static Ast),
     ExprUnary(&'static ExprUnary),
     ExprBinary(&'static ExprBinary),
@@ -49,240 +120,17 @@ pub enum AstNode {
     LiteralInt(&'static LiteralInt),
     LiteralString(&'static LiteralString),
     LiteralBool(&'static LiteralBool),
-    LiteralNil(&'static LiteralNil),
-}
-impl AstNode {
-    pub fn as_dyn(&self) -> &dyn AstNodeWrap {
-        match self {
-            Self::Ast(n) => n,
-            Self::ExprUnary(n) => n,
-            Self::ExprBinary(n) => n,
-            Self::ExprIdent(n) => n,
-            Self::ExprLiteral(n) => n,
-            Self::ExprIf(n) => n,
-            Self::ExprIfCase(n) => n,
-            Self::ExprVarDecl(n) => n,
-            Self::ExprFnDecl(n) => n,
-            Self::ExprEntype(n) => n,
-            Self::ExprFnCall(n) => n,
-            Self::ExprCurry(n) => n,
-            Self::Ident(n) => n,
-            Self::LiteralInt(n) => n,
-            Self::LiteralString(n) => n,
-            Self::LiteralBool(n) => n,
-            Self::LiteralNil(n) => n,
-        }
-    }
-}
-impl fmt::Debug for AstNode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.as_dyn().fmt(f)
-    }
-}
+    LiteralNil(&'static LiteralNil)
+]);
 
-pub struct Ast {
-    decls: Option<&'static StaticLL<Expr>>,
-}
-impl Ast {
-    pub fn decls(&self) -> impl Iterator<Item=Expr> {
-        adapt_ll(self.decls, |e| e.tail)
-            .map(|n| *n.head)
-    }
-}
-impl AstNodeWrap for &'static Ast {
-    fn as_any(self) -> AstNode {
-        AstNode::Ast(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const Ast as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.extend(self.decls().map(|d| d.as_any()));
-    }
-}
-impl fmt::Debug for Ast {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "program")?
-            .add_all(self.decls())?
-            .finish()
-    }
-}
-
-pub struct Ident {
-    loc: Location,
-    name: &'static str,
-}
-impl Ident {
-    pub fn name(&self) -> &'static str {
-        self.name
-    }
-    pub fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
-impl AstNodeWrap for &'static Ident {
-    fn as_any(self) -> AstNode {
-        AstNode::Ident(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const Ident as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "ident")?
-            .add(&self.name())?
-            .finish()
-    }
-}
-
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub enum Literal {
+node_select!(Literal, [
     String(&'static LiteralString),
     Int(&'static LiteralInt),
     Bool(&'static LiteralBool),
-    Nil(&'static LiteralNil),
-}
-impl AstNodeWrap for Literal {
-    fn node_id(&self) -> AstNodeId {
-        match self {
-            Literal::Int(l) => l.node_id(),
-            Literal::String(l) => l.node_id(),
-            Literal::Bool(l) => l.node_id(),
-            Literal::Nil(l) => l.node_id(),
-        }
-    }
-    fn as_any(self) -> AstNode {
-        match self {
-            Literal::Int(l) => l.as_any(),
-            Literal::String(l) => l.as_any(),
-            Literal::Bool(l) => l.as_any(),
-            Literal::Nil(l) => l.as_any(),
-        }
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        match self {
-            Literal::Int(l) => l.push_children(dst),
-            Literal::String(l) => l.push_children(dst),
-            Literal::Bool(l) => l.push_children(dst),
-            Literal::Nil(l) => l.push_children(dst),
-        }
-    }
-}
-impl fmt::Debug for Literal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::String(e) => e.fmt(f),
-            Self::Int(e) => e.fmt(f),
-            Self::Bool(e) => e.fmt(f),
-            Self::Nil(e) => e.fmt(f),
-        }
-    }
-}
+    Nil(&'static LiteralNil)
+]);
 
-pub struct LiteralString {
-    loc: Location,
-    val: &'static str,
-}
-impl LiteralString {
-    pub fn val(&self) -> &str {
-        self.val
-    }
-}
-impl AstNodeWrap for &'static LiteralString {
-    fn as_any(self) -> AstNode {
-        AstNode::LiteralString(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const LiteralString as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for LiteralString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "literal")?
-            .add(&self.val())?
-            .finish()
-    }
-}
-
-pub struct LiteralInt {
-    loc: Location,
-    val: u64,
-}
-impl LiteralInt {
-    pub fn val(&self) -> u64 {
-        self.val
-    }
-}
-impl AstNodeWrap for &'static LiteralInt {
-    fn as_any(self) -> AstNode {
-        AstNode::LiteralInt(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const LiteralInt as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for LiteralInt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "literal")?
-        .add(&self.val())?
-        .finish()
-    }
-}
-
-pub struct LiteralBool {
-    loc: Location,
-    val: bool,
-}
-impl LiteralBool {
-    pub fn val(&self) -> bool {
-        self.val
-    }
-}
-impl AstNodeWrap for &'static LiteralBool {
-    fn as_any(self) -> AstNode {
-        AstNode::LiteralBool(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const LiteralBool as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for LiteralBool {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "literal")?
-        .add(&self.val())?
-        .finish()
-    }
-}
-
-pub struct LiteralNil {
-    loc: Location,
-}
-impl AstNodeWrap for &'static LiteralNil {
-    fn as_any(self) -> AstNode {
-        AstNode::LiteralNil(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const LiteralNil as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for LiteralNil {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "literal nil")?
-        .finish()
-    }
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub enum Expr {
+node_select!(Expr, [
     Unary(&'static ExprUnary),
     Binary(&'static ExprBinary),
     Literal(&'static ExprLiteral),
@@ -293,8 +141,8 @@ pub enum Expr {
     FnDecl(&'static ExprFnDecl),
     Entype(&'static ExprEntype),
     FnCall(&'static ExprFnCall),
-    Curry(&'static ExprCurry),
-}
+    Curry(&'static ExprCurry)
+]);
 impl Expr {
     pub fn unwrap_ident(&self) -> &'static Ident {
         if let Expr::Ident(i) = self {
@@ -304,72 +152,75 @@ impl Expr {
         }
     }
 }
-impl AstNodeWrap for Expr {
-    fn as_any(self) -> AstNode {
-        match self {
-            Expr::Unary(e) => e.as_any(),
-            Expr::Binary(e) => e.as_any(),
-            Expr::Literal(e) => e.as_any(),
-            Expr::Ident(e) => e.as_any(),
-            Expr::If(e) => e.as_any(),
-            Expr::IfCase(e) => e.as_any(),
-            Expr::VarDecl(e) => e.as_any(),
-            Expr::FnDecl(e) => e.as_any(),
-            Expr::Entype(e) => e.as_any(),
-            Expr::FnCall(e) => e.as_any(),
-            Expr::Curry(e) => e.as_any(),
-        }
-    }
-    fn node_id(&self) -> AstNodeId {
-        match self {
-            Expr::Unary(e) => e.node_id(),
-            Expr::Binary(e) => e.node_id(),
-            Expr::Literal(e) => e.node_id(),
-            Expr::Ident(e) => e.node_id(),
-            Expr::If(e) => e.node_id(),
-            Expr::IfCase(e) => e.node_id(),
-            Expr::VarDecl(e) => e.node_id(),
-            Expr::FnDecl(e) => e.node_id(),
-            Expr::Entype(e) => e.node_id(),
-            Expr::FnCall(e) => e.node_id(),
-            Expr::Curry(e) => e.node_id(),
-        }
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        match self {
-            Expr::Unary(e) => e.push_children(dst),
-            Expr::Binary(e) => e.push_children(dst),
-            Expr::Literal(e) => e.push_children(dst),
-            Expr::Ident(e) => e.push_children(dst),
-            Expr::If(e) => e.push_children(dst),
-            Expr::IfCase(e) => e.push_children(dst),
-            Expr::VarDecl(e) => e.push_children(dst),
-            Expr::FnDecl(e) => e.push_children(dst),
-            Expr::Entype(e) => e.push_children(dst),
-            Expr::FnCall(e) => e.push_children(dst),
-            Expr::Curry(e) => e.push_children(dst),
-        }
-    }
-}
-impl fmt::Debug for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unary(e) => e.fmt(f),
-            Self::Binary(e) => e.fmt(f),
-            Self::Literal(e) => e.fmt(f),
-            Self::Ident(e) => e.fmt(f),
-            Self::If(e) => e.fmt(f),
-            Self::IfCase(e) => e.fmt(f),
-            Self::VarDecl(e) => e.fmt(f),
-            Self::FnDecl(e) => e.fmt(f),
-            Self::Entype(e) => e.fmt(f),
-            Self::FnCall(e) => e.fmt(f),
-            Self::Curry(e) => e.fmt(f),
-        }
-    }
-}
 
 
+macro_rules! node {
+    ($name:ident, $str:expr, { $($inner:ident: $in_ty:ty),* }, [ $($child:ident: $ty:ty),* ]) => {
+        pub struct $name {
+            loc: Location,
+            $( $inner : $in_ty, )*
+            $( $child : $ty, )*
+        }
+        impl $name {
+            $( pub fn $child(&self) -> $ty { self.$child } )*
+            $( pub fn $inner(&self) -> $in_ty { self.$inner } )*
+        }
+        impl AstNodeWrap for &'static $name {
+            fn as_any(self) -> AstNode {
+                AstNode::$name(self)
+            }
+            fn node_id(&self) -> AstNodeId {
+                AstNodeId(*self as *const $name as usize)
+            }
+            fn loc(&self) -> &Location {
+                &self.loc
+            }
+            fn push_children(&self, _dst: &mut Vec<AstNode>) {
+                $( _dst.push(self.$child().as_any()); )*
+            }
+        }
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                SExp::new(f, $str)?
+                    $( .add(&self.$inner())? )*
+                    $( .add(&self.$child())? )*
+                    .finish()
+            }
+        }
+    };
+}
+
+node!(Ident, "ident", { name: &'static str }, []);
+node!(LiteralString, "literal",
+    { val: &'static str }, []);
+node!(LiteralInt, "literal",
+    { val: u64 }, []);
+node!(LiteralBool, "literal",
+    { val: bool }, []);
+node!(LiteralNil, "literal nil", {}, []);
+
+node!(ExprCurry, "curry", {}, []);
+node!(ExprLiteral, "expr literal",
+    {}, [ literal: &'static Literal ]);
+node!(ExprIdent, "expr ident",
+    {}, [ ident: &'static Ident ]);
+node!(ExprIf, "expr if",
+    {}, [ cond: &'static Expr, then_expr: &'static Expr, else_expr: &'static Expr ]);
+node!(ExprEntype, "expr entype",
+    {}, [ target: &'static Ident, ty: &'static Expr ]);
+node!(ExprVarDecl, "expr var_decl",
+    {}, [ name: &'static Ident, val: &'static Expr ]);
+node!(ExprUnary, "expr unary",
+    { operator: UnaryOp },
+    [ operand: &'static Expr ]);
+node!(ExprBinary, "expr binary",
+    { operator: BinaryOp },
+    [ left: &'static Expr, right: &'static Expr ]);
+impl ExprBinary {
+    pub fn operands(&self) -> (&'static Expr, &'static Expr) {
+        (self.left, self.right)
+    }
+}
 
 #[repr(u32)]
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -392,179 +243,9 @@ pub enum BinaryOp {
     Eq,
 }
 
-pub struct ExprUnary {
-    loc: Location,
-    operator: UnaryOp,
-    operand: Expr,
-}
-impl ExprUnary {
-    pub fn operator(&self) -> UnaryOp {
-        self.operator
-    }
-    pub fn operand(&self) -> Expr {
-        self.operand
-    }
-    pub fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
-impl AstNodeWrap for &'static ExprUnary {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprUnary(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprUnary as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.operand().as_any())
-    }
-}
-impl fmt::Debug for ExprUnary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr unary")?
-            .add(&self.operator())?
-            .add(&self.operand())?
-            .finish()
-    }
-}
-
-pub struct ExprBinary {
-    loc: Location,
-    operator: BinaryOp,
-    left: Expr,
-    right: Expr,
-}
-impl ExprBinary {
-    pub fn operator(&self) -> BinaryOp {
-        self.operator
-    }
-    pub fn operands(&self) -> (Expr, Expr) {
-        (self.left, self.right)
-    }
-}
-impl AstNodeWrap for &'static ExprBinary {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprBinary(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprBinary as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        let (left, right) = self.operands();
-        dst.push(left.as_any());
-        dst.push(right.as_any());
-    }
-}
-impl fmt::Debug for ExprBinary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (op1, op2) = self.operands();
-        SExp::new(f, "expr binary")?
-            .add(&self.operator())?
-            .add(&op1)?
-            .add(&op2)?
-            .finish()
-    }
-}
-
-pub struct ExprLiteral {
-    loc: Location,
-    literal: Literal
-}
-impl ExprLiteral {
-    pub fn literal(&self) -> Literal {
-        self.literal
-    }
-}
-impl AstNodeWrap for &'static ExprLiteral {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprLiteral(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprLiteral as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.literal().as_any())
-    }
-}
-impl fmt::Debug for ExprLiteral {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr literal")?
-            .add(&self.literal())?
-            .finish()
-    }
-}
-
-pub struct ExprIdent {
-    loc: Location,
-    ident: &'static Ident
-}
-impl ExprIdent {
-    pub fn ident(&self) -> &'static Ident {
-        self.ident
-    }
-}
-impl AstNodeWrap for &'static ExprIdent {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprIdent(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprIdent as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.ident().as_any())
-    }
-}
-impl fmt::Debug for ExprIdent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr ident")?
-            .add(&self.ident())?
-            .finish()
-    }
-}
-
-pub struct ExprIf {
-    loc: Location,
-    cond: Expr,
-    then_expr: Expr,
-    else_expr: Expr
-}
-impl ExprIf {
-    pub fn cond(&self) -> Expr {
-        self.cond
-    }
-    pub fn then_expr(&self) -> Expr {
-        self.then_expr
-    }
-    pub fn else_expr(&self) -> Expr {
-        self.else_expr
-    }
-}
-impl AstNodeWrap for &'static ExprIf {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprIf(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprIf as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.cond().as_any());
-        dst.push(self.then_expr().as_any());
-        dst.push(self.else_expr().as_any());
-    }
-}
-impl fmt::Debug for ExprIf {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr if")?
-            .add(&self.cond())?
-            .add(&self.then_expr())?
-            .add(&self.else_expr())?
-            .finish()
-    }
-}
-
 pub enum IfCase {
-    OnVal(Literal, Expr),
-    Else(Expr)
+    OnVal(&'static Literal, &'static Expr),
+    Else(&'static Expr)
 }
 impl fmt::Debug for IfCase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -584,14 +265,13 @@ impl fmt::Debug for IfCase {
 
 pub struct ExprIfCase {
     loc: Location,
-    cond: Expr,
+    cond: &'static Expr,
     cases: Option<&'static StaticLL<IfCase>>,
 }
 impl ExprIfCase {
-    pub fn cond(&self) -> Expr {
+    pub fn cond(&self) -> &'static Expr {
         self.cond
     }
-
     pub fn cases(&self) -> impl Iterator<Item=&'static IfCase> {
         adapt_ll(self.cases, |e| e.tail)
             .map(|n| n.head)
@@ -603,6 +283,9 @@ impl AstNodeWrap for &'static ExprIfCase {
     }
     fn node_id(&self) -> AstNodeId {
         AstNodeId(*self as *const ExprIfCase as usize)
+    }
+    fn loc(&self) -> &Location {
+        &self.loc
     }
     fn push_children(&self, dst: &mut Vec<AstNode>) {
         dst.push(self.cond().as_any());
@@ -628,82 +311,10 @@ impl fmt::Debug for ExprIfCase {
     }
 }
 
-pub struct ExprEntype {
-    loc: Location,
-    target: Expr,
-    ty: Expr
-}
-impl ExprEntype {
-    pub fn target(&self) -> &'static Ident {
-        self.target.unwrap_ident()
-    }
-
-    pub fn ty(&self) -> Expr {
-        self.ty
-    }
-}
-impl AstNodeWrap for &'static ExprEntype {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprEntype(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprEntype as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.target().as_any());
-        dst.push(self.ty().as_any());
-    }
-}
-impl fmt::Debug for ExprEntype {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr entype")?
-            .add(&self.target())?
-            .add(&self.ty())?
-            .finish()
-    }
-}
-
-pub struct ExprVarDecl {
-    loc: Location,
-    name: Expr,
-    val: Expr
-}
-impl ExprVarDecl {
-    pub fn name(&self) -> &'static Ident {
-        self.name.unwrap_ident()
-    }
-    pub fn val(&self) -> Expr {
-        self.val
-    }
-    pub fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
-impl AstNodeWrap for &'static ExprVarDecl {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprVarDecl(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprVarDecl as usize)
-    }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
-        dst.push(self.name().as_any());
-        dst.push(self.val().as_any());
-    }
-}
-impl fmt::Debug for ExprVarDecl {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "expr var_decl")?
-            .add(&self.name())?
-            .add(&self.val())?
-            .finish()
-    }
-}
-
 pub struct ExprFnDecl {
     loc: Location,
-    name: Option<Expr>,
-    val: Expr,
+    name: Option<&'static Expr>,
+    val: &'static Expr,
     args: Option<&'static StaticLL<Expr>>,
     pure: bool
 }
@@ -712,7 +323,7 @@ impl ExprFnDecl {
         self.name
             .map(|e| e.unwrap_ident())
     }
-    pub fn val(&self) -> Expr {
+    pub fn val(&self) -> &'static Expr {
         self.val
     }
     pub fn args(&self) -> impl Iterator<Item=&'static Ident> {
@@ -722,9 +333,6 @@ impl ExprFnDecl {
     pub fn pure(&self) -> bool {
         self.pure
     }
-    pub fn loc(&self) -> &Location {
-        &self.loc
-    }
 }
 impl AstNodeWrap for &'static ExprFnDecl {
     fn as_any(self) -> AstNode {
@@ -732,6 +340,9 @@ impl AstNodeWrap for &'static ExprFnDecl {
     }
     fn node_id(&self) -> AstNodeId {
         AstNodeId(*self as *const ExprFnDecl as usize)
+    }
+    fn loc(&self) -> &Location {
+        &self.loc
     }
     fn push_children(&self, dst: &mut Vec<AstNode>) {
         if let Some(name) = self.name() {
@@ -743,7 +354,6 @@ impl AstNodeWrap for &'static ExprFnDecl {
 }
 impl fmt::Debug for ExprFnDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            
         let s =
             SExp::new(f, "expr fn_decl")?
                 .add(&if self.pure() { "pure" } else { "impure" })?;
@@ -761,23 +371,20 @@ impl fmt::Debug for ExprFnDecl {
 
 pub struct ExprFnCall {
     loc: Location,
-    callee: Expr,
+    callee: &'static Expr,
     args: Option<&'static StaticLL<Expr>>,
     pure: bool,
 }
 impl ExprFnCall {
-    pub fn callee(&self) -> Expr {
+    pub fn callee(&self) -> &'static Expr {
         self.callee
     }
-    pub fn args(&self) -> impl Iterator<Item=Expr> {
+    pub fn args(&self) -> impl Iterator<Item=&'static Expr> {
         adapt_ll(self.args, |e| e.tail)
-            .map(|n| *n.head)
+            .map(|n| n.head)
     }
     pub fn pure(&self) -> bool {
         self.pure
-    }
-    pub fn loc(&self) -> &Location {
-        &self.loc
     }
 }
 impl AstNodeWrap for &'static ExprFnCall {
@@ -786,6 +393,9 @@ impl AstNodeWrap for &'static ExprFnCall {
     }
     fn node_id(&self) -> AstNodeId {
         AstNodeId(*self as *const ExprFnCall as usize)
+    }
+    fn loc(&self) -> &Location {
+        &self.loc
     }
     fn push_children(&self, dst: &mut Vec<AstNode>) {
         dst.push(self.callee().as_any());
@@ -799,24 +409,6 @@ impl fmt::Debug for ExprFnCall {
             .add(&self.callee())?
             .add_all(self.args())?
             .finish()
-    }
-}
-
-pub struct ExprCurry {
-    loc: Location
-}
-impl AstNodeWrap for &'static ExprCurry {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprCurry(self)
-    }
-    fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprCurry as usize)
-    }
-    fn push_children(&self, _: &mut Vec<AstNode>) { }
-}
-impl fmt::Debug for ExprCurry {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SExp::new(f, "curry")?.finish()
     }
 }
 
@@ -842,134 +434,134 @@ pub extern fn ast_create(decls: Option<&'static ExprLL>) -> &'static Ast {
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_literal(loc: Location, literal: Literal) -> Expr {
-    Expr::Literal(
+pub extern fn ast_add_expr_literal(loc: Location, literal: &'static Literal) -> &'static Expr {
+    static_ref(Expr::Literal(
         static_ref(ExprLiteral {
             loc, literal
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_ident(loc: Location, ident: &'static Ident) -> Expr {
-    Expr::Ident(
+pub extern fn ast_add_expr_ident(loc: Location, ident: &'static Ident) -> &'static Expr {
+    static_ref(Expr::Ident(
         static_ref(ExprIdent {
             loc, ident
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_unary(loc: Location, operator: UnaryOp, operand: Expr) -> Expr {
-    Expr::Unary(
+pub extern fn ast_add_expr_unary(loc: Location, operator: UnaryOp, operand: &'static Expr) -> &'static Expr {
+    static_ref(Expr::Unary(
         static_ref(ExprUnary {
             loc, operator, operand
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_binary(loc: Location, left: Expr, operator: BinaryOp, right: Expr) -> Expr {
-    Expr::Binary(
+pub extern fn ast_add_expr_binary(loc: Location, left: &'static Expr, operator: BinaryOp, right: &'static Expr) -> &'static Expr {
+    static_ref(Expr::Binary(
         static_ref(ExprBinary {
             loc, left, operator, right
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if(loc: Location, cond: Expr, then_expr: Expr, else_expr: Expr) -> Expr {
-    Expr::If(
+pub extern fn ast_add_expr_if(loc: Location, cond: &'static Expr, then_expr: &'static Expr, else_expr: &'static Expr) -> &'static Expr {
+    static_ref(Expr::If(
         static_ref(ExprIf {
             loc, cond, then_expr, else_expr
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if_case(loc: Location, cond: Expr, cases: Option<&'static CaseLL>) -> Expr {
+pub extern fn ast_add_expr_if_case(loc: Location, cond: &'static Expr, cases: Option<&'static CaseLL>) -> &'static Expr {
     let cases = cases.map(|e| &e.0);
-    Expr::IfCase(
+    static_ref(Expr::IfCase(
         static_ref(ExprIfCase {
             loc, cond, cases
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_var_decl(loc: Location, name: Expr, val: Expr) -> Expr {
-    Expr::VarDecl(
+pub extern fn ast_add_expr_var_decl(loc: Location, name: &'static Expr, val: &'static Expr) -> &'static Expr {
+    static_ref(Expr::VarDecl(
         static_ref(ExprVarDecl {
-            loc, name, val
+            loc, name: name.unwrap_ident(), val
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_entype(loc: Location, target: Expr, ty: Expr) -> Expr {
-    Expr::Entype(
+pub extern fn ast_add_expr_entype(loc: Location, target: &'static Expr, ty: &'static Expr) -> &'static Expr {
+    static_ref(Expr::Entype(
         static_ref(ExprEntype {
-            loc, target, ty
+            loc, target: target.unwrap_ident(), ty
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_decl(loc: Location, pure: bool, name: Option<&Expr>, args: Option<&'static ExprLL>, val: Expr) -> Expr {
+pub extern fn ast_add_expr_fn_decl(loc: Location, pure: bool, name: Option<&'static Expr>, args: Option<&'static ExprLL>, val: &'static Expr) -> &'static Expr {
     let args = args.map(|e| &e.0);
-    Expr::FnDecl(
+    static_ref(Expr::FnDecl(
         static_ref(ExprFnDecl {
-            loc, pure, name: name.copied(), args, val
+            loc, pure, name, args, val
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_call(loc: Location, pure: bool, callee: Expr, args: Option<&'static ExprLL>) -> Expr {
+pub extern fn ast_add_expr_fn_call(loc: Location, pure: bool, callee: &'static Expr, args: Option<&'static ExprLL>) -> &'static Expr {
     let args = args.map(|e| &e.0);
-    Expr::FnCall(
+    static_ref(Expr::FnCall(
         static_ref(ExprFnCall {
             loc, pure, callee, args
         })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_curry(loc: Location, ) -> Expr {
-    Expr::Curry(
+pub extern fn ast_add_expr_curry(loc: Location) -> &'static Expr {
+    static_ref(Expr::Curry(
         static_ref(ExprCurry { loc })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_int(loc: Location, val: u64) -> Literal {
-    Literal::Int(
+pub extern fn ast_add_literal_int(loc: Location, val: u64) -> &'static Literal {
+    static_ref(Literal::Int(
         static_ref(LiteralInt { loc, val })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_str(loc: Location, s: *const c_char) -> Literal {
+pub extern fn ast_add_literal_str(loc: Location, s: *const c_char) -> &'static Literal {
     let s = unsafe { ffi::CStr::from_ptr(s) }
         .to_str()
         .unwrap();
-    Literal::String(
+    static_ref(Literal::String(
         static_ref(LiteralString { loc, val: s })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_bool(loc: Location, b: bool) -> Literal {
-    Literal::Bool(
+pub extern fn ast_add_literal_bool(loc: Location, b: bool) -> &'static Literal {
+    static_ref(Literal::Bool(
         static_ref(LiteralBool { loc, val: b })
-    )
+    ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_nil(loc: Location) -> Literal {
-    Literal::Nil(
+pub extern fn ast_add_literal_nil(loc: Location) -> &'static Literal {
+    static_ref(Literal::Nil(
         static_ref(LiteralNil { loc })
-    )
+    ))
 }
 
 #[no_mangle]
@@ -981,18 +573,18 @@ pub extern fn ast_add_ident(loc: Location, name: *const c_char) -> &'static Iden
 }
 
 #[no_mangle]
-pub extern fn ast_prepend_expr_list(item: Expr, list: Option<&'static ExprLL>) -> &'static ExprLL {
+pub extern fn ast_prepend_expr_list(item: &'static Expr, list: Option<&'static ExprLL>) -> &'static ExprLL {
     static_ref(ExprLL(StaticLL {
-        head: static_ref(item),
+        head: item,
         tail: list.map(|e| &e.0)
     }))
 }
 
 #[no_mangle]
-pub extern fn ast_prepend_case_list(case: Option<&Literal>, then: Expr, list: Option<&'static CaseLL>) -> &'static CaseLL {
+pub extern fn ast_prepend_case_list(case: Option<&'static Literal>, then: &'static Expr, list: Option<&'static CaseLL>) -> &'static CaseLL {
     static_ref(CaseLL(StaticLL {
         head: if let Some(case) = case {
-            static_ref(IfCase::OnVal(*case, then))
+            static_ref(IfCase::OnVal(case, then))
         } else {
             static_ref(IfCase::Else(then))
         },

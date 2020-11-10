@@ -111,7 +111,7 @@ pub fn analyze(root: &'static ast::Ast, builtins: BuiltinMap) -> Scopes {
     ctx.set_scope(root.node_id(), global_scope);
 
     preorder(root, |node| {
-        let node_id = node.as_dyn().node_id();
+        let node_id = node.node_id();
         if let Some(scope) = ctx.node_scope_id(node_id) {
             ctx.scope = scope;
             ctx.visit_node(node);

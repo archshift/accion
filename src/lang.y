@@ -24,9 +24,9 @@
 %union {
     const Ast *prgm;
     const ExprLL *expr_list;
-    Expr expr;
+    const Expr *expr;
     const CaseLL *case_list;
-    Literal lit;
+    const Literal *lit;
     const Ident *ident;
 
     const char *str;
@@ -99,9 +99,9 @@ decl
     | ident_expr "~" expr                   { $$ = ast_add_expr_entype(LOC, $1, $3); }
     | LAMBDA "(" ident_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(LOC, true, NULL, $3, $6); }
     | ident_expr "(" ident_list ")" ":=" expr
-                                            { $$ = ast_add_expr_fn_decl(LOC, true, &$1, $3, $6); }
+                                            { $$ = ast_add_expr_fn_decl(LOC, true, $1, $3, $6); }
     | ident_expr "!" "(" ident_list ")" ":=" expr
-                                            { $$ = ast_add_expr_fn_decl(LOC, false, &$1, $4, $7); }
+                                            { $$ = ast_add_expr_fn_decl(LOC, false, $1, $4, $7); }
     ;
 
 ident_list
@@ -141,14 +141,14 @@ expr
     | expr "!" "(" arg_list ")"             { $$ = ast_add_expr_fn_call(LOC, false, $1, $4 ); }
     /* adapted from decl below */
     | ident_expr ":=" expr                  { $$ = ast_add_expr_var_decl(LOC, $1, $3); }
-    | expr "(" arg_list ")" ":=" expr       { $$ = ast_add_expr_fn_decl(LOC, true, &$1, $3, $6); }
-    | expr "!" "(" arg_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(LOC, false, &$1, $4, $7); }
+    | expr "(" arg_list ")" ":=" expr       { $$ = ast_add_expr_fn_decl(LOC, true, $1, $3, $6); }
+    | expr "!" "(" arg_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(LOC, false, $1, $4, $7); }
     | LAMBDA "(" ident_list ")" ":=" expr   { $$ = ast_add_expr_fn_decl(LOC, true, NULL, $3, $6); }
     ;
 
 case_list
-    : literal "then" expr "," case_list     { $$ = ast_prepend_case_list(&$1, $3, $5); }
-    | literal "then" expr                   { $$ = ast_prepend_case_list(&$1, $3, NULL); }
+    : literal "then" expr "," case_list     { $$ = ast_prepend_case_list($1, $3, $5); }
+    | literal "then" expr                   { $$ = ast_prepend_case_list($1, $3, NULL); }
     | "else" expr                           { $$ = ast_prepend_case_list(NULL, $2, NULL); }
     ;
 

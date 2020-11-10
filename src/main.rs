@@ -11,6 +11,7 @@ mod values;
 
 use std::env::args;
 use crate::analysis::{scoping, typing, constexpr};
+use crate::ast::AstNodeWrap;
 
 fn next_arg<'a>(it: &mut impl Iterator<Item=String>, storage: &'a mut Option<String>) -> Option<&'a str> {
     *storage = it.next();
@@ -45,7 +46,7 @@ fn main() {
 
     if let Some("types") = cmd {
         analysis::preorder(ast, |node| {
-            if let Some(ty) = types.node_type(node.as_dyn().node_id()) {
+            if let Some(ty) = types.node_type(node.node_id()) {
                 println!("{:30}  ~  {:?}", types.store.format_ty(ty), node);
             }
         });

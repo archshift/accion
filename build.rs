@@ -57,6 +57,7 @@ fn main() {
         .with_language(cbindgen::Language::C)
         .with_pragma_once(true)
         .with_src("src/ast.rs")
+        .with_include("ast.h")
         .generate()
         .expect("Failed to generate bindings!")
         .write_to_file(ast_bindings_h);

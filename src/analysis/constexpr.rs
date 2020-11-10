@@ -5,7 +5,7 @@ use std::cell::RefCell;
 
 use derive_newtype::NewType;
 
-use crate::ast;
+use crate::ast::{self, AstNodeWrap};
 use crate::analysis::{Visitor};
 use crate::analysis::typing::Types;
 use crate::values::{self, Value};

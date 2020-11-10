@@ -11,7 +11,7 @@ trait Visitor {
         }
     }
 
-    fn visit_expr(&mut self, node: ast::Expr) {
+    fn visit_expr(&mut self, node: &'static ast::Expr) {
         match node {
             ast::Expr::Binary(e) => self.visit_expr_binary(&e),
             ast::Expr::Unary(e) => self.visit_expr_unary(&e),
@@ -38,7 +38,7 @@ trait Visitor {
     fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent);
     fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry);
 
-    fn visit_literal(&mut self, node: ast::Literal) {
+    fn visit_literal(&mut self, node: &'static ast::Literal) {
         match node {
             ast::Literal::Int(l) => self.visit_literal_int(&l),
             ast::Literal::String(l) => self.visit_literal_str(&l),
@@ -87,7 +87,7 @@ pub fn preorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
         if let Some(child) = children.get(*idx) {
             // Found the child. Add its own children to the stack.
             let mut new_children = Vec::new();
-            child.as_dyn().push_children(&mut new_children);
+            child.push_children(&mut new_children);
 
             f(child);
             
