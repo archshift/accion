@@ -9,7 +9,7 @@ use crate::builtins::BuiltinMap;
 pub struct Declaration {
     pub name: String,
     pub scope: ScopeId,
-    pub node_id: ast::AstNodeId,
+    pub node: ast::AstNode,
     pub impure_fn: bool,
 }
 
@@ -166,7 +166,7 @@ impl Visitor for ScopingCtx {
         self.add_decl(Declaration {
             name: node.name().name().to_owned(),
             scope: self.scope,
-            node_id: node.node_id(),
+            node: node.as_any(),
             impure_fn: false,
         });
     }
@@ -178,7 +178,7 @@ impl Visitor for ScopingCtx {
             self.add_decl(Declaration {
                 name: name.name().to_owned(),
                 scope: self.scope,
-                node_id: name.node_id(),
+                node: name.as_any(),
                 impure_fn: !node.pure(),
             });
         }
@@ -186,7 +186,7 @@ impl Visitor for ScopingCtx {
             self.add_decl(Declaration {
                 name: arg.name().to_owned(),
                 scope: body_scope,
-                node_id: arg.node_id(),
+                node: arg.as_any(),
                 impure_fn: false,
             });
         }
