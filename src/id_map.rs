@@ -24,7 +24,7 @@ impl<T: IdMapItem> IdMap<T> {
         } else {
             let id = Id(self.vals.len());
             self.vals.push(item.clone());
-            self.id_map.entry(item);
+            self.id_map.insert(item, id);
             id
         }
     }
