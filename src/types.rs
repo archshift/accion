@@ -23,7 +23,7 @@ pub enum BaseType {
     Curry,
     Type,
     List(TypeId),
-    Fn(FnArgTypes, TypeId),
+    Fn(FnArgTypes, TypeId, Purity),
     TypeExpr(ast::AstNodeId),
     
     TypeVar(usize),
@@ -52,12 +52,11 @@ impl Purity {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Type {
     pub base: BaseType,
-    pub purity: Purity,
 }
 impl Type {
     pub const fn new(base: BaseType) -> Self {
         Self {
-            base, purity: Purity::Any
+            base
         }
     }
 }
@@ -103,11 +102,7 @@ impl TypeStore {
     }
 
     pub fn reify(&mut self, id: TypeId, real: TypeId) -> TypeId {
-        let new_purity = self.query(real).purity;
-
         self.types.update_with(*id, |old| {
-            old.purity = old.purity.mix(new_purity);
-
             if let BaseType::TypeVar(tv_id) = old.base {
                 old.base = BaseType::TypeVarResolved(tv_id, real);
             }
@@ -144,8 +139,8 @@ impl TypeStore {
             (_, BaseType::TypeVar(_)) => {
                 Ok(self.reify(second, first))
             }
-            (BaseType::Fn(args1, ret1), BaseType::Fn(args2, ret2)) => {
-                if args1.len() != args2.len() {
+            (BaseType::Fn(args1, ret1, purity1), BaseType::Fn(args2, ret2, purity2)) => {
+                if purity1 != purity2 || args1.len() != args2.len() {
                     return Err(chain_err(Default::default()))
                 }
 
@@ -185,8 +180,9 @@ impl TypeStore {
                 => self.format_ty(*inner),
             BaseType::List(inner)
                 => format!("List({})", self.format_ty(*inner)),
-            BaseType::Fn(args, ret) => {
-                let mut out: String = "Fn(".into();
+            BaseType::Fn(args, ret, purity) => {
+                let impure_bang = if *purity == Purity::Impure { "!" } else { "" };
+                let mut out: String = format!("Fn{}(", impure_bang);
                 for arg in args {
                     write!(&mut out, "{} -> ", self.format_ty(*arg))
                         .unwrap();
@@ -197,9 +193,6 @@ impl TypeStore {
             }
         };
 
-        if ty.purity == Purity::Impure {
-            out.push('!')
-        }
         out
     }
 }

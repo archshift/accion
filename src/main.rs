@@ -11,7 +11,7 @@ mod values;
 mod interpreter;
 
 use std::env::args;
-use crate::analysis::{scoping, typing, constexpr};
+use crate::analysis::{scoping, typing, purity, constexpr};
 use crate::ast::AstNodeWrap;
 
 fn next_arg<'a>(it: &mut impl Iterator<Item=String>, storage: &'a mut Option<String>) -> Option<&'a str> {
@@ -40,6 +40,17 @@ fn main() {
     
     if let Some("scopes") = cmd {
         println!("{:#?}", scopes);
+        return
+    }
+
+    let purity = purity::analyze(&ast, &scopes);
+
+    if let Some("purity") = cmd {
+        analysis::preorder(ast, |node| {
+            if let Some(node_purity) = purity.node_purity(node.as_any()) {
+                println!("{:10?}  ~  {:?}", node_purity, node);
+            }
+        });
         return
     }
 

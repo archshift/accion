@@ -63,3 +63,16 @@ Standard functions:
 - `filter(fn, iter)`: Keeps only selected items
 - `print!(anything)`: Prints the argument
 - `debug(anything)`: Prints the argument to the debug log
+
+
+### Purity semantics
+
+A function may be pure or impure. Impure function definitions and calls have a `!` suffix after the name.
+
+An impure function may only be called with the impure function call syntax.
+
+Any impure function call poisons the surrounding expression, rendering that expression impure as well. Impure expressions likewise poison their surrounding expressions.
+
+Pure function calls may not have an impure body expression. Impure function calls may have a pure or impure body.
+
+Arguments in the function definition are considered pure, even in impure functions. Arguments in a function call may be pure or impure, even in pure functions.

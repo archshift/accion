@@ -170,7 +170,7 @@ impl Visitor for ScopingCtx {
             impure_fn: false,
         });
     }
-    fn visit_expr_fn_decl(&mut self, node: &ast::ExprFnDecl) {
+    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
         let body_scope = self.new_scope(self.scope);
         self.set_scope(node.val().node_id(), body_scope);
         
@@ -178,7 +178,7 @@ impl Visitor for ScopingCtx {
             self.add_decl(Declaration {
                 name: name.name().to_owned(),
                 scope: self.scope,
-                node: name.as_any(),
+                node: node.as_any(),
                 impure_fn: !node.pure(),
             });
         }

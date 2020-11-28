@@ -1,6 +1,7 @@
 pub mod scoping;
 pub mod typing;
 pub mod constexpr;
+pub mod purity;
 
 use crate::ast;
 
@@ -100,4 +101,19 @@ pub fn preorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
             upcoming.pop();
         }
     }
+}
+
+pub fn postorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
+    use crate::ast::AstNodeWrap;
+
+    fn postorder_node(node: ast::AstNode, f: &mut impl FnMut(&ast::AstNode)) {
+        let mut children = Vec::new();
+        node.push_children(&mut children);
+        for child in children {
+            postorder_node(child, f);
+        }
+        f(&node);
+    }
+
+    postorder_node(ast.as_any(), &mut f)
 }

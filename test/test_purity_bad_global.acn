@@ -1,0 +1,3 @@
+# Global values must be pure
+print!(x) := debug(x)
+a := print!(0)

@@ -91,7 +91,7 @@ const ANY_BOOL: Type = Type::new(BaseType::Bool);
 const ANY_INT: Type = Type::new(BaseType::Int);
 const ANY_STRING: Type = Type::new(BaseType::String);
 const ANY_CURRY: Type = Type::new(BaseType::Curry);
-const PURE_META: Type = Type { base: BaseType::Type, purity: Purity::Pure };
+const PURE_META: Type = Type { base: BaseType::Type };
 
 trait Typing : ast::AstNodeWrap {
     fn analyze_type(&self, ctx: &mut TypeAnalysis);
@@ -114,7 +114,7 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(node.as_any(), meta_id);
         self.type_node(ty.as_any(), meta_id);
 
-        let type_expr = Type { base: BaseType::TypeExpr(ty.node_id()), purity: Purity::Pure };
+        let type_expr = Type { base: BaseType::TypeExpr(ty.node_id()) };
         let type_expr_id = self.types.add(type_expr);
         self.type_node(decl.node, type_expr_id);
     }
@@ -199,8 +199,8 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(val.as_any(), ret_type);
         
         let fn_type = Type {
-            base: BaseType::Fn(arg_types, ret_type),
-            purity: if node.pure() { Purity::Pure } else { Purity::Impure }
+            base: BaseType::Fn(arg_types, ret_type,
+                if node.pure() { Purity::Pure } else { Purity::Impure })
         };
         let fn_type_id = self.types.add(fn_type);
         self.type_node(node.as_any(), fn_type_id);
@@ -285,8 +285,8 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(node.as_any(), ret_type);
 
         let fn_type = Type {
-            base: BaseType::Fn(arg_types, ret_type),
-            purity: if node.pure() { Purity::Pure } else { Purity::Impure }
+            base: BaseType::Fn(arg_types, ret_type,
+                if node.pure() { Purity::Pure } else { Purity::Impure })
         };
         let fn_type_id = self.types.add(fn_type);
         self.type_node(callee.as_any(), fn_type_id);
