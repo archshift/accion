@@ -16,7 +16,7 @@ impl fmt::Debug for TypeId {
 pub type FnArgTypes = SmallVec<[TypeId; 4]>;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum BaseType {
+pub enum Type {
     Int,
     Bool,
     String,
@@ -45,18 +45,6 @@ impl Purity {
             (Purity::Pure, Purity::Pure) => Purity::Pure,
             (Purity::Impure, Purity::Impure) => Purity::Impure,
             _ => panic!("Purity mismatch!")
-        }
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct Type {
-    pub base: BaseType,
-}
-impl Type {
-    pub const fn new(base: BaseType) -> Self {
-        Self {
-            base
         }
     }
 }
@@ -95,7 +83,7 @@ impl TypeStore {
     }
     pub fn add_typevar(&mut self) -> TypeId {
         let next_id = self.types.len();
-        self.add(Type::new(BaseType::TypeVar(next_id)))
+        self.add(Type::TypeVar(next_id))
     }
     pub fn query(&self, ty: TypeId) -> &Type {
         &self.types.get(*ty).unwrap()
@@ -103,8 +91,8 @@ impl TypeStore {
 
     pub fn reify(&mut self, id: TypeId, real: TypeId) -> TypeId {
         self.types.update_with(*id, |old| {
-            if let BaseType::TypeVar(tv_id) = old.base {
-                old.base = BaseType::TypeVarResolved(tv_id, real);
+            if let Type::TypeVar(tv_id) = old {
+                *old = Type::TypeVarResolved(*tv_id, real);
             }
         });
 
@@ -116,30 +104,28 @@ impl TypeStore {
             return Ok(first);
         }
 
-        let first_ty = self.query(first);
-        let second_ty = self.query(second);
-        let first_base = first_ty.base.clone();
-        let second_base = second_ty.base.clone();
+        let first_ty = self.query(first).clone();
+        let second_ty = self.query(second).clone();
 
         let chain_err = |mut e: TypeCollateError| {
             e.chain.push((first, second));
             e
         };
         
-        match (first_base, second_base) {
-            (BaseType::TypeVarResolved(_, inner), _) => {
+        match (first_ty, second_ty) {
+            (Type::TypeVarResolved(_, inner), _) => {
                 self.collate_types(inner, second)
             }
-            (_, BaseType::TypeVarResolved(_, inner)) => {
+            (_, Type::TypeVarResolved(_, inner)) => {
                 self.collate_types(first, inner)
             }
-            (BaseType::TypeVar(_), _) => {
+            (Type::TypeVar(_), _) => {
                 Ok(self.reify(first, second))
             }
-            (_, BaseType::TypeVar(_)) => {
+            (_, Type::TypeVar(_)) => {
                 Ok(self.reify(second, first))
             }
-            (BaseType::Fn(args1, ret1, purity1), BaseType::Fn(args2, ret2, purity2)) => {
+            (Type::Fn(args1, ret1, purity1), Type::Fn(args2, ret2, purity2)) => {
                 if purity1 != purity2 || args1.len() != args2.len() {
                     return Err(chain_err(Default::default()))
                 }
@@ -152,7 +138,7 @@ impl TypeStore {
                     .map_err(chain_err)?;
                 Ok(first)
             }
-            (BaseType::List(ty1), BaseType::List(ty2)) => {
+            (Type::List(ty1), Type::List(ty2)) => {
                 self.collate_types(ty1, ty2)
                     .map_err(chain_err)?;
                 Ok(first)
@@ -167,20 +153,20 @@ impl TypeStore {
     pub fn format_ty(&self, ty: TypeId) -> String {
         use std::fmt::Write;
         let ty = self.query(ty);
-        let mut out = match &ty.base {
-            BaseType::String => "String".into(),
-            BaseType::Int => "Int".into(),
-            BaseType::Bool => "Bool".into(),
-            BaseType::Type => "Meta".into(),
-            BaseType::Curry => "...".into(),
-            BaseType::TypeVar(i) => format!("'{}", i),
-            BaseType::TypeExpr(node)
+        match &ty {
+            Type::String => "String".into(),
+            Type::Int => "Int".into(),
+            Type::Bool => "Bool".into(),
+            Type::Type => "Meta".into(),
+            Type::Curry => "...".into(),
+            Type::TypeVar(i) => format!("'{}", i),
+            Type::TypeExpr(node)
                 => format!("TypeExpr({:?})", node),
-            BaseType::TypeVarResolved(_, inner)
+            Type::TypeVarResolved(_, inner)
                 => self.format_ty(*inner),
-            BaseType::List(inner)
+            Type::List(inner)
                 => format!("List({})", self.format_ty(*inner)),
-            BaseType::Fn(args, ret, purity) => {
+            Type::Fn(args, ret, purity) => {
                 let impure_bang = if *purity == Purity::Impure { "!" } else { "" };
                 let mut out: String = format!("Fn{}(", impure_bang);
                 for arg in args {
@@ -191,9 +177,7 @@ impl TypeStore {
                 out.push(')');
                 out
             }
-        };
-
-        out
+        }
     }
 }
 impl fmt::Debug for TypeStore {

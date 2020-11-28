@@ -39,9 +39,9 @@ impl Types {
     pub fn node_type(&self, node: ast::AstNodeId) -> Option<TypeId> {
         if let Some(mut id) = self.node_types.get(&node).copied() {
             let mut ty;
-            while let BaseType::TypeVarResolved(_, inner) = { 
+            while let Type::TypeVarResolved(_, inner) = { 
                 ty = self.store.query(id);
-                &ty.base
+                &ty
             } {
                 id = *inner;
             }
@@ -87,19 +87,13 @@ pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes) -> Ty
     }
 }
 
-const ANY_BOOL: Type = Type::new(BaseType::Bool);
-const ANY_INT: Type = Type::new(BaseType::Int);
-const ANY_STRING: Type = Type::new(BaseType::String);
-const ANY_CURRY: Type = Type::new(BaseType::Curry);
-const PURE_META: Type = Type { base: BaseType::Type };
-
 trait Typing : ast::AstNodeWrap {
     fn analyze_type(&self, ctx: &mut TypeAnalysis);
 }
 
 impl Visitor for TypeAnalysis<'_> {
     fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
-        let meta_id = self.types.add(PURE_META);
+        let meta_id = self.types.add(Type::Type);
         let target = node.target();
         let ty = node.ty();
 
@@ -114,7 +108,7 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(node.as_any(), meta_id);
         self.type_node(ty.as_any(), meta_id);
 
-        let type_expr = Type { base: BaseType::TypeExpr(ty.node_id()) };
+        let type_expr = Type::TypeExpr(ty.node_id());
         let type_expr_id = self.types.add(type_expr);
         self.type_node(decl.node, type_expr_id);
     }
@@ -145,7 +139,7 @@ impl Visitor for TypeAnalysis<'_> {
     }
 
     fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
-        let bool_id = self.types.add(ANY_BOOL);
+        let bool_id = self.types.add(Type::Bool);
 
         let cond = node.cond();
         // Pre-select a type for the cond expression
@@ -198,10 +192,8 @@ impl Visitor for TypeAnalysis<'_> {
         let ret_type = self.types.add_typevar();
         self.type_node(val.as_any(), ret_type);
         
-        let fn_type = Type {
-            base: BaseType::Fn(arg_types, ret_type,
-                if node.pure() { Purity::Pure } else { Purity::Impure })
-        };
+        let fn_type = Type::Fn(arg_types, ret_type,
+                if node.pure() { Purity::Pure } else { Purity::Impure });
         let fn_type_id = self.types.add(fn_type);
         self.type_node(node.as_any(), fn_type_id);
         if let Some(name) = name {
@@ -210,7 +202,7 @@ impl Visitor for TypeAnalysis<'_> {
     }
 
     fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry) {
-        let curry_id = self.types.add(ANY_CURRY);
+        let curry_id = self.types.add(Type::Curry);
         self.type_node(node.as_any(), curry_id);
     }
 
@@ -218,20 +210,20 @@ impl Visitor for TypeAnalysis<'_> {
         let inner = node.operand();
         match node.operator() {
             | ast::UnaryOp::Negate => {
-                let int_id = self.types.add(ANY_INT);
+                let int_id = self.types.add(Type::Int);
                 self.type_node(node.as_any(), int_id);
                 self.type_node(inner.as_any(), int_id);
             }
             | ast::UnaryOp::Head => {
                 let type_var = self.types.add_typevar();
-                let type_var_list = Type::new(BaseType::List(type_var));
+                let type_var_list = Type::List(type_var);
                 let type_var_list_id = self.types.add(type_var_list);
                 self.type_node(node.as_any(), type_var);
                 self.type_node(inner.as_any(), type_var_list_id);
             }
             | ast::UnaryOp::Tail => {
                 let type_var = self.types.add_typevar();
-                let type_var_list = Type::new(BaseType::List(type_var));
+                let type_var_list = Type::List(type_var);
                 let type_var_list_id = self.types.add(type_var_list);
                 self.type_node(node.as_any(), type_var_list_id);
                 self.type_node(inner.as_any(), type_var_list_id);
@@ -248,21 +240,21 @@ impl Visitor for TypeAnalysis<'_> {
             | ast::BinaryOp::Div
             | ast::BinaryOp::Mod
             => {
-                let int_id = self.types.add(ANY_INT);
+                let int_id = self.types.add(Type::Int);
                 self.type_node(node.as_any(), int_id);
                 self.type_node(left.as_any(), int_id);
                 self.type_node(right.as_any(), int_id);
             }
             | ast::BinaryOp::Prepend => {
                 let type_var = self.types.add_typevar();
-                let type_var_list = Type::new(BaseType::List(type_var));
+                let type_var_list = Type::List(type_var);
                 let type_var_list_id = self.types.add(type_var_list);
                 self.type_node(left.as_any(), type_var);
                 self.type_node(right.as_any(), type_var_list_id);
             }
             | ast::BinaryOp::Eq
             => {
-                let bool_id = self.types.add(ANY_BOOL);
+                let bool_id = self.types.add(Type::Bool);
                 self.type_node(node.as_any(), bool_id);
                 self.equate_nodes(&[left.as_any(), right.as_any()]);
             }
@@ -284,32 +276,30 @@ impl Visitor for TypeAnalysis<'_> {
         let ret_type = self.types.add_typevar();
         self.type_node(node.as_any(), ret_type);
 
-        let fn_type = Type {
-            base: BaseType::Fn(arg_types, ret_type,
-                if node.pure() { Purity::Pure } else { Purity::Impure })
-        };
+        let fn_type = Type::Fn(arg_types, ret_type,
+                if node.pure() { Purity::Pure } else { Purity::Impure });
         let fn_type_id = self.types.add(fn_type);
         self.type_node(callee.as_any(), fn_type_id);
     }
 
     fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
-        let ty_id = self.types.add(ANY_INT);
+        let ty_id = self.types.add(Type::Int);
         self.type_node(node.as_any(), ty_id);
     }
 
     fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
-        let ty_id = self.types.add(ANY_STRING);
+        let ty_id = self.types.add(Type::String);
         self.type_node(node.as_any(), ty_id);
     }
 
     fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool) {
-        let ty_id = self.types.add(ANY_BOOL);
+        let ty_id = self.types.add(Type::Bool);
         self.type_node(node.as_any(), ty_id);
     }
 
     fn visit_literal_nil(&mut self, node: &'static ast::LiteralNil) {
         let type_var = self.types.add_typevar();
-        let generic_list = Type::new(BaseType::List(type_var));
+        let generic_list = Type::List(type_var);
         let generic_list_id = self.types.add(generic_list);
         self.type_node(node.as_any(), generic_list_id);
     }

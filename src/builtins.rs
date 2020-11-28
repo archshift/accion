@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::char;
 use std::convert::TryInto;
 
-use crate::types::{Type, TypeId, TypeStore, BaseType, Purity, FnArgTypes};
+use crate::types::{Type, TypeId, TypeStore, Purity, FnArgTypes};
 use crate::values::{Value, ValList};
 
 pub type BuiltinMap = HashMap<String, Builtin>;
@@ -20,18 +20,16 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
         map.insert(name.into(), Builtin { name: name.into(), ty: type_id, val });
     };
 
-    let int_id = types.add(Type::new(BaseType::Int));
-    let str_id = types.add(Type::new(BaseType::String));
-    let bool_id = types.add(Type::new(BaseType::Bool));
-    let meta_id = types.add(Type::new( BaseType::Type));
-    let meta_list = types.add(Type::new(BaseType::List(meta_id)));
-    let int_list = types.add(Type::new(BaseType::List(int_id)));
+    let int_id = types.add(Type::Int);
+    let str_id = types.add(Type::String);
+    let bool_id = types.add(Type::Bool);
+    let meta_id = types.add( Type::Type);
+    let meta_list = types.add(Type::List(meta_id));
+    let int_list = types.add(Type::List(int_id));
 
     let mut add_syscall = |name: &str, num_args: usize| {
         let syscall_args = FnArgTypes::from_elem(int_id, num_args);
-        let fn_ty = Type {
-            base: BaseType::Fn(syscall_args, int_id, Purity::Impure),
-        };
+        let fn_ty = Type::Fn(syscall_args, int_id, Purity::Impure);
         add_builtin(name, types.add(fn_ty), Value::Undefined);
     };
 
@@ -46,12 +44,11 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     add_builtin("Bool", meta_id, Value::Type(bool_id));
             
     add_builtin("Fn",
-        types.add(Type::new(BaseType::Fn(
-                FnArgTypes::from_slice(&[meta_list]),
-                meta_id,
-                Purity::Pure
-            ))
-        ),
+        types.add(Type::Fn(
+            FnArgTypes::from_slice(&[meta_list]),
+            meta_id,
+            Purity::Pure
+        )),
         Value::TypeFn(|args, types| {
             if let &[ Value::List(ref l) ] = &args[..] {
                 let mut fn_types: FnArgTypes = l.iter()
@@ -63,9 +60,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
                 let ret = fn_types.pop()
                     .expect("Builtin `Fn` should always have a return type");
 
-                Value::Type(types.add(Type {
-                    base: BaseType::Fn(fn_types, ret, Purity::Pure),
-                }))
+                Value::Type(types.add(Type::Fn(fn_types, ret, Purity::Pure)))
             } else {
                 panic!("Error: Should only call builtin `Fn` with one arg: `Arg1 -> Arg2 -> ... -> Ret`");
             }
@@ -73,16 +68,14 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("List",
-        types.add(Type::new(BaseType::Fn(
+        types.add(Type::Fn(
             FnArgTypes::from_slice(&[meta_id]),
             meta_id,
             Purity::Pure
-        ))),
+        )),
         Value::TypeFn(|args, types| {
             if let &[ Value::Type(t) ] = &args[..] {
-                Value::Type(types.add(Type {
-                    base: BaseType::List(t),
-                }))
+                Value::Type(types.add(Type::List(t)))
             } else {
                 panic!("Error: Should only call builtin `List` with one arg: `InnerType`");
             }
@@ -91,11 +84,11 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
 
     let dbg_typevar = types.add_typevar();
     add_builtin("debug",
-        types.add(Type::new(BaseType::Fn(
+        types.add(Type::Fn(
             FnArgTypes::from_slice(&[dbg_typevar]),
             dbg_typevar,
             Purity::Pure
-        ))),
+        )),
         Value::BuiltinFn(|mut args, _interp| {
             if args.len() != 1 {
                 panic!("Error: Should only call builtin `chars` with one arg");
@@ -107,11 +100,11 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("chars",
-        types.add(Type::new(BaseType::Fn(
+        types.add(Type::Fn(
             FnArgTypes::from_slice(&[str_id]),
             int_list,
             Purity::Pure
-        ))),
+        )),
         Value::BuiltinFn(|args, _interp| {
             if let &[ Value::String(ref s) ] = &args[..] {
                 let mut head = ValList::empty();
@@ -126,11 +119,11 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("from_chars",
-        types.add(Type::new(BaseType::Fn(
+        types.add(Type::Fn(
             FnArgTypes::from_slice(&[int_list]),
             str_id,
             Purity::Pure
-        ))),
+        )),
         Value::BuiltinFn(|args, _interp| {
             if let &[ Value::List(ref l) ] = &args[..] {
                 let mut out = String::new();
