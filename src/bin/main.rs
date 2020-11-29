@@ -1,18 +1,7 @@
-mod parser;
-pub mod ast;
-mod sexp;
-mod lliter;
-mod analysis;
-mod disjoint_set;
-mod builtins;
-mod id_map;
-mod types;
-mod values;
-mod interpreter;
-
 use std::env::args;
-use crate::analysis::{scoping, typing, purity, constexpr};
-use crate::ast::AstNodeWrap;
+use accion::analysis::{self, scoping, typing, purity, constexpr};
+use accion::{types, builtins, parser};
+use accion::ast::AstNodeWrap;
 
 fn next_arg<'a>(it: &mut impl Iterator<Item=String>, storage: &'a mut Option<String>) -> Option<&'a str> {
     *storage = it.next();
@@ -23,7 +12,7 @@ fn main() {
     let mut args = args();
     let mut arg_storage = None;
 
-    let ast = parser::parse_stdin()
+    let ast = parser::parse(parser::ParseInput::Stdin)
         .expect("parse error");
         
     let _prgm = next_arg(&mut args, &mut arg_storage);

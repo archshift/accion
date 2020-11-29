@@ -2,6 +2,7 @@
     #include "lang.tab.h"
 
     #include <string.h>
+    #include <stdio.h>
 
     #define YY_USER_ACTION do { \
         yylloc->first_line = yylloc->last_line; \
