@@ -1,9 +1,0 @@
-# Impure functions can have pure values
-print!(x) := debug(x)
-# Pure functions can have pure values
-wrap_debug(x) := debug(x)
-# Impure functions can have impure values
-wrap_print!(x) := print!(x)
-
-# Global values can (only) be pure
-a := wrap_debug(0)

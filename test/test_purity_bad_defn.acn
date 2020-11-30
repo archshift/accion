@@ -1,3 +1,0 @@
-# Pure functions must have pure values
-print!(x) := debug(x)
-foo(_) := print!("ok")
