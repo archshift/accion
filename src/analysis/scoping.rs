@@ -6,11 +6,25 @@ use crate::ast::{self, AstNodeWrap};
 use crate::builtins::BuiltinMap;
 
 #[derive(Debug)]
-pub struct Declaration {
+pub struct FwdDeclaration {
+    pub name: String,
+    pub scope: ScopeId,
+    pub entype: &'static ast::ExprEntype,
+}
+
+#[derive(Debug)]
+pub struct Definition {
     pub name: String,
     pub scope: ScopeId,
     pub node: ast::AstNode,
+    pub entype: Option<&'static ast::ExprEntype>,
     pub impure_fn: bool,
+}
+
+#[derive(Debug)]
+enum Declaration {
+    FwdDecl(FwdDeclaration),
+    Defn(Definition),
 }
 
 #[derive(Debug)]
@@ -27,8 +41,12 @@ impl Scope {
         }
     }
 
-    pub fn resolve<'a>(&'a self, name: &str) -> Option<&'a Declaration> {
-        self.decls.get(name)
+    pub fn resolve<'a>(&'a self, name: &str) -> Option<&'a Definition> {
+        if let Some(Declaration::Defn(decl)) = self.decls.get(name) {
+            Some(decl)
+        } else {
+            None
+        }
     }
 }
 
@@ -61,16 +79,41 @@ impl ScopingCtx {
     fn node_scope_id(&self, node: ast::AstNodeId) -> Option<ScopeId> {
         self.node_scopes.get(&node).copied()
     }
-    fn add_decl(&mut self, decl: Declaration) {
+    fn fwd_decl(&mut self, decl: FwdDeclaration) {
         let scope = &mut self.scopes[decl.scope.0];
         if self.builtins.contains_key(&decl.name) {
             panic!("Cannot shadow builtin function with decl {:?}!", decl.name);
         }
-        if scope.decls.contains_key(&decl.name) {
-            panic!("Cannot reassign ident in the same scope! Previous decl: {:?}; new decl: {:?}",
-                scope.decls[&decl.name], &decl);
+        match scope.decls.get(&decl.name) {
+            None =>
+                scope.decls.insert(decl.name.clone(), Declaration::FwdDecl(decl)),
+            Some(Declaration::FwdDecl(old)) =>
+                panic!("Cannot redeclare ident in the same scope! Previous decl: {:?}; new decl: {:?}",
+                    old, &decl),
+            Some(Declaration::Defn(old)) =>
+                panic!("Cannot redeclare ident in the same scope! Previous decl: {:?}; new decl: {:?}",
+                    old, &decl),
+        };
+    }
+    fn add_defn(&mut self, decl: Definition) {
+        let scope = &mut self.scopes[decl.scope.0];
+        if self.builtins.contains_key(&decl.name) {
+            panic!("Cannot shadow builtin function with decl {:?}!", decl.name);
         }
-        scope.decls.insert(decl.name.clone(), decl);
+        match scope.decls.remove(&decl.name) {
+            None =>
+                scope.decls.insert(decl.name.clone(), Declaration::Defn(decl)),
+            Some(Declaration::FwdDecl(old)) =>
+                scope.decls.insert(decl.name.clone(), Declaration::Defn(
+                    Definition {
+                        entype: Some(old.entype),
+                        ..decl
+                    }
+                )),
+            Some(Declaration::Defn(old)) =>
+                panic!("Cannot reassign ident in the same scope! Previous decl: {:?}; new decl: {:?}",
+                    old, &decl),
+        };
     }
 }
 
@@ -86,7 +129,7 @@ impl Scopes {
         self.node_scopes.get(&node).copied()
     }
 
-    pub fn resolve<'a>(&'a self, mut scope_id: ScopeId, name: &str) -> Option<&'a Declaration> {
+    pub fn resolve<'a>(&'a self, mut scope_id: ScopeId, name: &str) -> Option<&'a Definition> {
         while scope_id.0 != !0 {
             let scope = &self.scopes[scope_id.0];
             let decl = scope.resolve(name);
@@ -126,6 +169,11 @@ pub fn analyze(root: &'static ast::Ast, builtins: BuiltinMap) -> Scopes {
 }
 
 impl Visitor for ScopingCtx {
+    fn visit_ast(&mut self, node: &ast::Ast) {
+        for decl in node.decls() {
+            self.set_scope(decl.node_id(), self.scope);
+        }
+    }
     fn visit_expr_binary(&mut self, node: &ast::ExprBinary) {
         let (op1, op2) = node.operands();
         self.set_scope(op1.node_id(), self.scope);
@@ -158,15 +206,22 @@ impl Visitor for ScopingCtx {
             }
         }
     }
-    fn visit_expr_entype(&mut self, node: &ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
+        self.set_scope(node.target().node_id(), self.scope);
         self.set_scope(node.ty().node_id(), self.scope);
+        self.fwd_decl(FwdDeclaration {
+            name: node.target().name().to_owned(),
+            scope: self.scope,
+            entype: node
+        });
     }
     fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
         self.set_scope(node.val().node_id(), self.scope);
-        self.add_decl(Declaration {
+        self.add_defn(Definition {
             name: node.name().name().to_owned(),
             scope: self.scope,
             node: node.as_any(),
+            entype: None,
             impure_fn: false,
         });
     }
@@ -175,18 +230,20 @@ impl Visitor for ScopingCtx {
         self.set_scope(node.val().node_id(), body_scope);
         
         if let Some(name) = node.name() {
-            self.add_decl(Declaration {
+            self.add_defn(Definition {
                 name: name.name().to_owned(),
                 scope: self.scope,
                 node: node.as_any(),
+                entype: None,
                 impure_fn: !node.pure(),
             });
         }
         for arg in node.args() {
-            self.add_decl(Declaration {
+            self.add_defn(Definition {
                 name: arg.name().to_owned(),
                 scope: body_scope,
                 node: arg.as_any(),
+                entype: None,
                 impure_fn: false,
             });
         }

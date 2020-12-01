@@ -6,11 +6,7 @@ pub mod purity;
 use crate::ast;
 
 trait Visitor {
-    fn visit_ast(&mut self, ast: &'static ast::Ast) {
-        for decl in ast.decls() {
-            self.visit_expr(decl);
-        }
-    }
+    fn visit_ast(&mut self, _ast: &'static ast::Ast) {}
 
     fn visit_expr(&mut self, node: &'static ast::Expr) {
         match node {

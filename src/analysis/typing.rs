@@ -1,19 +1,22 @@
 use std::collections::HashMap;
 
 use crate::ast::{self, AstNodeWrap};
-use crate::analysis::{preorder, Visitor, scoping::Scopes};
+use crate::analysis::{preorder, Visitor, scoping::Scopes, constexpr::ConstVals};
 use crate::disjoint_set::DisjointSet;
 use crate::types::*;
 use smallvec::SmallVec;
 
 type NodeTypes = HashMap<ast::AstNodeId, TypeId>;
+type NodeEntyped = HashMap<ast::AstNodeId, ast::AstNode /* type expr */>;
 type TypesEq = DisjointSet<TypeId>;
 
 struct TypeAnalysis<'a> {
     scopes: &'a Scopes,
+    constexpr: &'a ConstVals,
     types: TypeStore,
     eq_types: TypesEq,
     node_types: NodeTypes,
+    node_entyped: NodeEntyped,
 }
 
 impl<'a> TypeAnalysis<'a> {
@@ -34,6 +37,7 @@ impl<'a> TypeAnalysis<'a> {
 pub struct Types {
     pub store: TypeStore,
     node_types: NodeTypes,
+    node_entyped: NodeEntyped,
 }
 impl Types {
     pub fn node_type(&self, node: ast::AstNodeId) -> Option<TypeId> {
@@ -64,15 +68,18 @@ fn reduce_types(ctx: &mut TypeAnalysis) -> Result<(), TypeCollateError> {
     Ok(())
 }
 
-pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes) -> Types {
+pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes, constexpr: &ConstVals) -> Types {
     let mut ctx = TypeAnalysis {
         scopes,
         types,
+        constexpr,
         eq_types: TypesEq::new(1000),
         node_types: NodeTypes::new(),
+        node_entyped: NodeEntyped::new(),
     };
     
     preorder(root, |node| {
+        println!("{:?}", node);
         ctx.visit_node(node);
     });
 
@@ -81,9 +88,14 @@ pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes) -> Ty
         panic!("Type resolution error!");
     }
 
+    for (_node, ty) in ctx.node_types.iter_mut() {
+        *ty = ctx.types.simplify(*ty);
+    }
+
     Types {
         store: ctx.types,
         node_types: ctx.node_types,
+        node_entyped: ctx.node_entyped
     }
 }
 
@@ -98,7 +110,7 @@ impl Visitor for TypeAnalysis<'_> {
         let ty = node.ty();
 
         let name = target.name();
-        let scope = self.scopes.node_scope(node.node_id()).unwrap();
+        let scope = self.scopes.node_scope(target.node_id()).unwrap();
         let decl = self.scopes.resolve(scope, name);
         if decl.is_none() {
             panic!("Error: could not find ident `{}` in scope", name);
@@ -107,10 +119,7 @@ impl Visitor for TypeAnalysis<'_> {
 
         self.type_node(node.as_any(), meta_id);
         self.type_node(ty.as_any(), meta_id);
-
-        let type_expr = Type::TypeExpr(ty.node_id());
-        let type_expr_id = self.types.add(type_expr);
-        self.type_node(decl.node, type_expr_id);
+        self.type_node(decl.node, self.constexpr.entype_val(decl).unwrap());
     }
 
     fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral) {

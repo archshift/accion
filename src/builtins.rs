@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::char;
 use std::convert::TryInto;
 
+use crate::mktype;
 use crate::types::{Type, TypeId, TypeStore, Purity, FnArgTypes};
 use crate::values::{Value, ValList};
 
@@ -24,8 +25,6 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     let str_id = types.add(Type::String);
     let bool_id = types.add(Type::Bool);
     let meta_id = types.add( Type::Type);
-    let meta_list = types.add(Type::List(meta_id));
-    let int_list = types.add(Type::List(int_id));
 
     let mut add_syscall = |name: &str, num_args: usize| {
         let syscall_args = FnArgTypes::from_elem(int_id, num_args);
@@ -44,11 +43,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     add_builtin("Bool", meta_id, Value::Type(bool_id));
             
     add_builtin("Fn",
-        types.add(Type::Fn(
-            FnArgTypes::from_slice(&[meta_list]),
-            meta_id,
-            Purity::Pure
-        )),
+        mktype!(types, (Fn Pure ((List (Type))) (Type))),
         Value::TypeFn(|args, types| {
             if let &[ Value::List(ref l) ] = &args[..] {
                 let mut fn_types: FnArgTypes = l.iter()
@@ -68,11 +63,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("List",
-        types.add(Type::Fn(
-            FnArgTypes::from_slice(&[meta_id]),
-            meta_id,
-            Purity::Pure
-        )),
+        mktype!(types, (Fn Pure ((Type)) (Type))),
         Value::TypeFn(|args, types| {
             if let &[ Value::Type(t) ] = &args[..] {
                 Value::Type(types.add(Type::List(t)))
@@ -100,11 +91,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("chars",
-        types.add(Type::Fn(
-            FnArgTypes::from_slice(&[str_id]),
-            int_list,
-            Purity::Pure
-        )),
+        mktype!(types, (Fn Pure ((String)) (Int))),
         Value::BuiltinFn(|args, _interp| {
             if let &[ Value::String(ref s) ] = &args[..] {
                 let mut head = ValList::empty();
@@ -119,11 +106,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     );
 
     add_builtin("from_chars",
-        types.add(Type::Fn(
-            FnArgTypes::from_slice(&[int_list]),
-            str_id,
-            Purity::Pure
-        )),
+        mktype!(types, (Fn Pure ((Int)) (String))),
         Value::BuiltinFn(|args, _interp| {
             if let &[ Value::List(ref l) ] = &args[..] {
                 let mut out = String::new();

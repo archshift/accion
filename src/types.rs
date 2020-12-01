@@ -1,9 +1,28 @@
 use std::fmt;
 
 use crate::id_map::{self, IdMap};
-use crate::ast;
 use derive_newtype::NewType;
 use smallvec::SmallVec;
+
+#[macro_export]
+macro_rules! mktype {
+    ($ctx:expr, ( $ty:ident )) => {{
+        use $crate::types::Type;
+        $ctx.add(Type::$ty)
+    }};
+    ($ctx:expr, ( Fn $purity:ident ( $($arg:tt)+ ) $ret:tt )) => {{
+        use $crate::types::{Type, FnArgTypes, Purity};
+        let mut args = FnArgTypes::new();
+        $( args.push( mktype!($ctx, $arg) ); )+
+        let ret = mktype!($ctx, $ret);
+        $ctx.add(Type::Fn(args, ret, Purity::$purity))
+    }};
+    ($ctx:expr, ( $ty:ident $inner:tt )) => {{
+        use $crate::types::Type;
+        let inner = mktype!($ctx, $inner );
+        $ctx.add(Type::$ty(inner))
+    }};
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, NewType)]
 pub struct TypeId(id_map::Id);
@@ -24,10 +43,9 @@ pub enum Type {
     Type,
     List(TypeId),
     Fn(FnArgTypes, TypeId, Purity),
-    TypeExpr(ast::AstNodeId),
     
-    TypeVar(usize),
-    TypeVarResolved(usize, TypeId),
+    TypeVar(usize /* id */),
+    TypeVarResolved(usize /* id */, TypeId),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -98,7 +116,6 @@ impl TypeStore {
 
         real
     }
-
     pub fn collate_types(&mut self, first: TypeId, second: TypeId) -> Result<TypeId, TypeCollateError> {
         if first == second {
             return Ok(first);
@@ -160,8 +177,6 @@ impl TypeStore {
             Type::Type => "Meta".into(),
             Type::Curry => "...".into(),
             Type::TypeVar(i) => format!("'{}", i),
-            Type::TypeExpr(node)
-                => format!("TypeExpr({:?})", node),
             Type::TypeVarResolved(_, inner)
                 => self.format_ty(*inner),
             Type::List(inner)
@@ -176,6 +191,31 @@ impl TypeStore {
                 out.push_str(&self.format_ty(*ret));
                 out.push(')');
                 out
+            }
+        }
+    }
+
+    pub fn simplify(&mut self, id: TypeId) -> TypeId {
+        let ty = self.query(id).clone();
+        match &ty {
+            | Type::String | Type::Int | Type::Bool
+            | Type::Type | Type::Curry | Type::TypeVar(_)
+                => id,
+            
+            | Type::TypeVarResolved(_, inner)
+                => self.simplify(*inner),
+
+            | Type::List(inner) => {
+                let inner = self.simplify(*inner);
+                self.add(Type::List(inner))
+            },
+
+            | Type::Fn(args, ret, purity) => {
+                let out_args = args.iter()
+                    .map(|id| self.simplify(*id))
+                    .collect();
+                let out_ret = self.simplify(*ret);
+                self.add(Type::Fn(out_args, out_ret, *purity))
             }
         }
     }

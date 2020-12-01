@@ -43,7 +43,9 @@ fn main() {
         return
     }
 
-    let mut types = typing::analyze(&ast, types, &scopes);
+    let constexpr = constexpr::analyze(&ast, &mut types, &purity, &scopes);
+
+    let mut types = typing::analyze(&ast, types, &scopes, &constexpr);
 
     if let Some("types") = cmd {
         analysis::preorder(ast, |node| {
@@ -53,6 +55,4 @@ fn main() {
         });
         return
     }
-
-    constexpr::analyze(&ast, &mut types, &scopes.builtins);
 }
