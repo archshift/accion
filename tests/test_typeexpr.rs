@@ -80,3 +80,50 @@ fn global_fn_simple_typeexpr() {
     let fn_type_expected = mktype!(ctx.typing.store, (Fn Pure ((Int)) (Int)));
     assert_eq!(fn_type_id, fn_type_expected);
 }
+
+#[test]
+fn global_fn_complex_typeexpr() {
+    let program = r#"
+        tydecode ~ Fn(Str -> Type -> nil)
+        tydecode(name) :=
+            if name is (
+                "Str" then Str,
+                "Bool" then Bool,
+                "Int" then Int,
+                else Int
+            )
+        unit_bool ~ Fn(tydecode("Bool") -> tydecode("Bool") -> nil)
+        unit_bool(x) := x
+        unit_int ~ Fn(tydecode("Int") -> tydecode("Int") -> nil)
+        unit_int(x) := x
+        unit_str ~ Fn(tydecode("Str") -> tydecode("Str") -> nil)
+        unit_str(x) := x
+    "#;
+    let mut ctx = TestTyExprCtx::analyze(program);
+
+    let decls: Vec<_> = ctx.ast.decls().collect();
+    let tydecode = unwrap_node!(decls[1], ExprFnDecl);
+    let unit_bool = unwrap_node!(decls[3], ExprFnDecl);
+    let unit_int = unwrap_node!(decls[5], ExprFnDecl);
+    let unit_str = unwrap_node!(decls[7], ExprFnDecl);
+
+    fndecl_check_name!(tydecode, "tydecode");
+    fndecl_check_name!(unit_bool, "unit_bool");
+    fndecl_check_name!(unit_int, "unit_int");
+    fndecl_check_name!(unit_str, "unit_str");
+
+    let tydecode_type_id = ctx.typing.node_type(tydecode.node_id()).unwrap();
+    let unit_bool_type_id = ctx.typing.node_type(unit_bool.node_id()).unwrap();
+    let unit_int_type_id = ctx.typing.node_type(unit_int.node_id()).unwrap();
+    let unit_str_type_id = ctx.typing.node_type(unit_str.node_id()).unwrap();
+
+    let tydecode_type_expected = mktype!(ctx.typing.store, (Fn Pure ((String)) (Type)));
+    let unit_bool_type_expected = mktype!(ctx.typing.store, (Fn Pure ((Bool)) (Bool)));
+    let unit_int_type_expected = mktype!(ctx.typing.store, (Fn Pure ((Int)) (Int)));
+    let unit_str_type_expected = mktype!(ctx.typing.store, (Fn Pure ((String)) (String)));
+
+    assert_eq!(tydecode_type_id, tydecode_type_expected);
+    assert_eq!(unit_bool_type_id, unit_bool_type_expected);
+    assert_eq!(unit_int_type_id, unit_int_type_expected);
+    assert_eq!(unit_str_type_id, unit_str_type_expected);
+}

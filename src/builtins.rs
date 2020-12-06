@@ -41,6 +41,7 @@ pub fn make_builtins(types: &mut TypeStore) -> BuiltinMap {
     add_builtin("Int", meta_id, Value::Type(int_id));
     add_builtin("Str", meta_id, Value::Type(str_id));
     add_builtin("Bool", meta_id, Value::Type(bool_id));
+    add_builtin("Type", meta_id, Value::Type(meta_id));
             
     add_builtin("Fn",
         mktype!(types, (Fn Pure ((List (Type))) (Type))),
