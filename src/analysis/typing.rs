@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ast::{self, AstNodeWrap};
 use crate::analysis::{preorder, Visitor, scoping::Scopes, constexpr::ConstVals};
@@ -28,7 +29,7 @@ impl<'a> TypeAnalysis<'a> {
     fn equate_nodes(&mut self, nodes: &[ast::AstNode]) {
         let type_var = self.types.add_typevar();
         for node in nodes {
-            self.type_node(*node, type_var);
+            self.type_node(node.clone(), type_var);
         }
     }
 }
@@ -68,7 +69,7 @@ fn reduce_types(ctx: &mut TypeAnalysis) -> Result<(), TypeCollateError> {
     Ok(())
 }
 
-pub fn analyze(root: &'static ast::Ast, types: TypeStore, scopes: &Scopes, constexpr: &ConstVals) -> Types {
+pub fn analyze(root: &Rc<ast::Ast>, types: TypeStore, scopes: &Scopes, constexpr: &ConstVals) -> Types {
     let mut ctx = TypeAnalysis {
         scopes,
         types,
@@ -104,7 +105,7 @@ trait Typing : ast::AstNodeWrap {
 }
 
 impl Visitor for TypeAnalysis<'_> {
-    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         let meta_id = self.types.add(Type::Type);
         let target = node.target();
         let ty = node.ty();
@@ -119,15 +120,15 @@ impl Visitor for TypeAnalysis<'_> {
 
         self.type_node(node.as_any(), meta_id);
         self.type_node(ty.as_any(), meta_id);
-        self.type_node(decl.node, self.constexpr.entype_val(decl).unwrap());
+        self.type_node(decl.node.clone(), self.constexpr.entype_val(decl).unwrap());
     }
 
-    fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral) {
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>) {
         let lit = node.literal();
         self.equate_nodes(&[node.as_any(), lit.as_any()]);
     }
 
-    fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent) {
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) {
         let ident = node.ident();
         let name = ident.name();
         
@@ -144,10 +145,10 @@ impl Visitor for TypeAnalysis<'_> {
         }
         let decl = decl.unwrap();
         
-        self.equate_nodes(&[node.as_any(), decl.node]);
+        self.equate_nodes(&[node.as_any(), decl.node.clone()]);
     }
 
-    fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) {
         let bool_id = self.types.add(Type::Bool);
 
         let cond = node.cond();
@@ -159,7 +160,7 @@ impl Visitor for TypeAnalysis<'_> {
         self.equate_nodes(&[node.as_any(), then_expr.as_any(), else_expr.as_any()]);
     }
 
-    fn visit_expr_if_case(&mut self, node: &'static ast::ExprIfCase) {
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) {
         let cond = node.cond();
         let mut cond_ty_nodes = SmallVec::<[ast::AstNode; 4]>::new();
         let mut val_ty_nodes = SmallVec::<[ast::AstNode; 4]>::new();
@@ -183,12 +184,12 @@ impl Visitor for TypeAnalysis<'_> {
         self.equate_nodes(&val_ty_nodes);
     }
 
-    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) {
         let val = node.val();
         self.equate_nodes(&[node.as_any(), val.as_any()]);
     }
 
-    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) {
         let name = node.name();
         let val = node.val();
 
@@ -210,12 +211,12 @@ impl Visitor for TypeAnalysis<'_> {
         }
     }
 
-    fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry) {
+    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>) {
         let curry_id = self.types.add(Type::Curry);
         self.type_node(node.as_any(), curry_id);
     }
 
-    fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary) {
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) {
         let inner = node.operand();
         match node.operator() {
             | ast::UnaryOp::Negate => {
@@ -240,7 +241,7 @@ impl Visitor for TypeAnalysis<'_> {
         }
     }
 
-    fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary) {
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) {
         let (left, right) = node.operands();
         match node.operator() {
             | ast::BinaryOp::Add
@@ -272,7 +273,7 @@ impl Visitor for TypeAnalysis<'_> {
         }
     }
 
-    fn visit_expr_fn_call(&mut self, node: &'static ast::ExprFnCall) {
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) {
         let callee = node.callee();
 
         let mut arg_types = FnArgTypes::new();
@@ -291,27 +292,27 @@ impl Visitor for TypeAnalysis<'_> {
         self.type_node(callee.as_any(), fn_type_id);
     }
 
-    fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>) {
         let ty_id = self.types.add(Type::Int);
         self.type_node(node.as_any(), ty_id);
     }
 
-    fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>) {
         let ty_id = self.types.add(Type::String);
         self.type_node(node.as_any(), ty_id);
     }
 
-    fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool) {
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>) {
         let ty_id = self.types.add(Type::Bool);
         self.type_node(node.as_any(), ty_id);
     }
 
-    fn visit_literal_nil(&mut self, node: &'static ast::LiteralNil) {
+    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>) {
         let type_var = self.types.add_typevar();
         let generic_list = Type::List(type_var);
         let generic_list_id = self.types.add(generic_list);
         self.type_node(node.as_any(), generic_list_id);
     }
 
-    fn visit_ident(&mut self, _: &ast::Ident) { }
+    fn visit_ident(&mut self, _: &Rc<ast::Ident>) { }
 }

@@ -5,8 +5,10 @@ use accion::builtins;
 use accion::types;
 use types::Purity;
 
+use std::rc::Rc;
+
 struct TestPurityCtx {
-    ast: &'static ast::Ast,
+    ast: Rc<ast::Ast>,
     purity: purity::Purities,
 }
 
@@ -17,19 +19,19 @@ impl TestPurityCtx {
     
         let mut types = types::TypeStore::new();
         let builtins = builtins::make_builtins(&mut types);
-        let scopes = scoping::analyze(ast, builtins);
-        let purity = purity::analyze(ast, &scopes);
+        let scopes = scoping::analyze(&ast, builtins);
+        let purity = purity::analyze(&ast, &scopes);
         Self {
             ast,
             purity,
         }
     }
 
-    fn assert_impure<T: AstNodeWrap>(&self, node: T) {
+    fn assert_impure<T: AstNodeWrap>(&self, node: &T) {
         assert_eq!(self.purity.node_purity(node.as_any()), Some(Purity::Impure));
     }
 
-    fn assert_pure<T: AstNodeWrap>(&self, node: T) {
+    fn assert_pure<T: AstNodeWrap>(&self, node: &T) {
         assert_ne!(self.purity.node_purity(node.as_any()), Some(Purity::Impure));
     }
 }
@@ -56,8 +58,8 @@ fn pure_valued_impure_fn() {
 
     let decls: Vec<_> = ctx.ast.decls().collect();
     let print = unwrap_node!(decls[0], ExprFnDecl);
-    ctx.assert_pure(print);
-    ctx.assert_pure(*print.val());
+    ctx.assert_pure(&print);
+    ctx.assert_pure(print.val());
 }
 
 #[test]
@@ -71,8 +73,8 @@ fn impure_valued_impure_fn() {
     let decls: Vec<_> = ctx.ast.decls().collect();
     let print2 = unwrap_node!(decls[1], ExprFnDecl);
     fndecl_check_name!(print2, "print2");
-    ctx.assert_pure(print2);
-    ctx.assert_impure(*print2.val());
+    ctx.assert_pure(&print2);
+    ctx.assert_impure(print2.val());
 }
 
 #[test]
@@ -94,7 +96,7 @@ fn pure_global() {
 
     let decls: Vec<_> = ctx.ast.decls().collect();
     let printed = unwrap_node!(decls[0], ExprVarDecl);
-    ctx.assert_pure(printed);
+    ctx.assert_pure(&printed);
 }
 
 #[test]

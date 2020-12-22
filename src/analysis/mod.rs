@@ -3,76 +3,78 @@ pub mod typing;
 pub mod constexpr;
 pub mod purity;
 
+use std::rc::Rc;
+
 use crate::ast;
 
 trait Visitor {
-    fn visit_ast(&mut self, _ast: &'static ast::Ast) {}
+    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) {}
 
-    fn visit_expr(&mut self, node: &'static ast::Expr) {
-        match node {
-            ast::Expr::Binary(e) => self.visit_expr_binary(&e),
-            ast::Expr::Unary(e) => self.visit_expr_unary(&e),
-            ast::Expr::FnCall(e) => self.visit_expr_fn_call(&e),
-            ast::Expr::If(e) => self.visit_expr_if(&e),
-            ast::Expr::IfCase(e) => self.visit_expr_if_case(&e),
-            ast::Expr::Entype(e) => self.visit_expr_entype(&e),
-            ast::Expr::VarDecl(e) => self.visit_expr_var_decl(&e),
-            ast::Expr::FnDecl(e) => self.visit_expr_fn_decl(&e),
-            ast::Expr::Literal(e) => self.visit_expr_literal(&e),
-            ast::Expr::Ident(e) => self.visit_expr_ident(&e),
-            ast::Expr::Curry(e) => self.visit_expr_curry(&e),
+    fn visit_expr(&mut self, node: &Rc<ast::Expr>) {
+        match node.as_ref() {
+            ast::Expr::Binary(e) => self.visit_expr_binary(e),
+            ast::Expr::Unary(e) => self.visit_expr_unary(e),
+            ast::Expr::FnCall(e) => self.visit_expr_fn_call(e),
+            ast::Expr::If(e) => self.visit_expr_if(e),
+            ast::Expr::IfCase(e) => self.visit_expr_if_case(e),
+            ast::Expr::Entype(e) => self.visit_expr_entype(e),
+            ast::Expr::VarDecl(e) => self.visit_expr_var_decl(e),
+            ast::Expr::FnDecl(e) => self.visit_expr_fn_decl(e),
+            ast::Expr::Literal(e) => self.visit_expr_literal(e),
+            ast::Expr::Ident(e) => self.visit_expr_ident(e),
+            ast::Expr::Curry(e) => self.visit_expr_curry(e),
         }
     }
-    fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary);
-    fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary);
-    fn visit_expr_fn_call(&mut self, node: &'static ast::ExprFnCall);
-    fn visit_expr_if(&mut self, node: &'static ast::ExprIf);
-    fn visit_expr_if_case(&mut self, node: &'static ast::ExprIfCase);
-    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype);
-    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl);
-    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl);
-    fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral);
-    fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent);
-    fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry);
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>);
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>);
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>);
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>);
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>);
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>);
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>);
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>);
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>);
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>);
+    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>);
 
-    fn visit_literal(&mut self, node: &'static ast::Literal) {
-        match node {
-            ast::Literal::Int(l) => self.visit_literal_int(&l),
-            ast::Literal::String(l) => self.visit_literal_str(&l),
-            ast::Literal::Bool(l) => self.visit_literal_bool(&l),
-            ast::Literal::Nil(l) => self.visit_literal_nil(&l),
+    fn visit_literal(&mut self, node: &Rc<ast::Literal>) {
+        match node.as_ref() {
+            ast::Literal::Int(l) => self.visit_literal_int(l),
+            ast::Literal::String(l) => self.visit_literal_str(l),
+            ast::Literal::Bool(l) => self.visit_literal_bool(l),
+            ast::Literal::Nil(l) => self.visit_literal_nil(l),
         }
     }
-    fn visit_literal_str(&mut self, node: &'static ast::LiteralString);
-    fn visit_literal_int(&mut self, node: &'static ast::LiteralInt);
-    fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool);
-    fn visit_literal_nil(&mut self, node: &'static ast::LiteralNil);
-    fn visit_ident(&mut self, node: &'static ast::Ident);
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>);
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>);
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>);
+    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>);
+    fn visit_ident(&mut self, node: &Rc<ast::Ident>);
 
     fn visit_node(&mut self, node: &ast::AstNode) {
         match node {
-            ast::AstNode::Ast(n) => self.visit_ast(n),
-            ast::AstNode::ExprUnary(n) => self.visit_expr_unary(n),
-            ast::AstNode::ExprBinary(n) => self.visit_expr_binary(n),
-            ast::AstNode::ExprIdent(n) => self.visit_expr_ident(n),
-            ast::AstNode::ExprLiteral(n) => self.visit_expr_literal(n),
-            ast::AstNode::ExprIf(n) => self.visit_expr_if(n),
-            ast::AstNode::ExprIfCase(n) => self.visit_expr_if_case(n),
-            ast::AstNode::ExprVarDecl(n) => self.visit_expr_var_decl(n),
-            ast::AstNode::ExprFnDecl(n) => self.visit_expr_fn_decl(n),
-            ast::AstNode::ExprEntype(n) => self.visit_expr_entype(n),
-            ast::AstNode::ExprFnCall(n) => self.visit_expr_fn_call(n),
-            ast::AstNode::ExprCurry(n) => self.visit_expr_curry(n),
-            ast::AstNode::Ident(n) => self.visit_ident(n),
-            ast::AstNode::LiteralInt(n) => self.visit_literal_int(n),
-            ast::AstNode::LiteralString(n) => self.visit_literal_str(n),
-            ast::AstNode::LiteralBool(n) => self.visit_literal_bool(n),
-            ast::AstNode::LiteralNil(n) => self.visit_literal_nil(n),
+            ast::AstNode::Ast(n) => self.visit_ast(&n),
+            ast::AstNode::ExprUnary(n) => self.visit_expr_unary(&n),
+            ast::AstNode::ExprBinary(n) => self.visit_expr_binary(&n),
+            ast::AstNode::ExprIdent(n) => self.visit_expr_ident(&n),
+            ast::AstNode::ExprLiteral(n) => self.visit_expr_literal(&n),
+            ast::AstNode::ExprIf(n) => self.visit_expr_if(&n),
+            ast::AstNode::ExprIfCase(n) => self.visit_expr_if_case(&n),
+            ast::AstNode::ExprVarDecl(n) => self.visit_expr_var_decl(&n),
+            ast::AstNode::ExprFnDecl(n) => self.visit_expr_fn_decl(&n),
+            ast::AstNode::ExprEntype(n) => self.visit_expr_entype(&n),
+            ast::AstNode::ExprFnCall(n) => self.visit_expr_fn_call(&n),
+            ast::AstNode::ExprCurry(n) => self.visit_expr_curry(&n),
+            ast::AstNode::Ident(n) => self.visit_ident(&n),
+            ast::AstNode::LiteralInt(n) => self.visit_literal_int(&n),
+            ast::AstNode::LiteralString(n) => self.visit_literal_str(&n),
+            ast::AstNode::LiteralBool(n) => self.visit_literal_bool(&n),
+            ast::AstNode::LiteralNil(n) => self.visit_literal_nil(&n),
         }
     }
 }
 
-pub fn preorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
+pub fn preorder(ast: &Rc<ast::Ast>, mut f: impl FnMut(&ast::AstNode)) {
     use crate::ast::AstNodeWrap;
 
     let mut upcoming = vec![vec![ast.as_any()]];
@@ -99,17 +101,12 @@ pub fn preorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
     }
 }
 
-pub fn postorder(ast: &'static ast::Ast, mut f: impl FnMut(&ast::AstNode)) {
+pub fn postorder(node: ast::AstNode, mut f: &mut impl FnMut(&ast::AstNode)) {
     use crate::ast::AstNodeWrap;
-
-    fn postorder_node(node: ast::AstNode, f: &mut impl FnMut(&ast::AstNode)) {
-        let mut children = Vec::new();
-        node.push_children(&mut children);
-        for child in children {
-            postorder_node(child, f);
-        }
-        f(&node);
+    let mut children = Vec::new();
+    node.push_children(&mut children);
+    for child in children {
+        postorder(child, f);
     }
-
-    postorder_node(ast.as_any(), &mut f)
+    f(&node);
 }

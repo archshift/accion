@@ -1,10 +1,14 @@
+use core::panic;
 use std::fmt;
 use std::ffi;
+use std::rc::Rc;
+use std::fmt::Debug;
 
-use crate::lliter::adapt_ll;
+use crate::lliter;
 use crate::sexp::SExp;
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct Location {
     lline: u32,
     lcol: u32,
@@ -27,26 +31,26 @@ impl fmt::Debug for AstNodeId {
 
 pub trait AstNodeWrap : fmt::Debug {
     fn node_id(&self) -> AstNodeId;
-    fn as_any(self) -> AstNode;
     fn loc(&self) -> &Location;
+    fn as_any(&self) -> AstNode;
     fn push_children(&self, dst: &mut Vec<AstNode>);
 }
 
 pub struct Ast {
-    decls: Option<&'static StaticLL<Expr>>,
+    decls: StaticLL<Box<Expr>>,
 }
 impl Ast {
-    pub fn decls(&self) -> impl Iterator<Item=&'static Expr> {
-        adapt_ll(self.decls, |e| e.tail)
-            .map(|n| n.head)
+    pub fn decls(&self) -> impl Iterator<Item=&Expr> {
+        self.decls.iter()
+            .map(|e| e.as_ref())
     }
 }
-impl AstNodeWrap for &'static Ast {
-    fn as_any(self) -> AstNode {
-        AstNode::Ast(self)
+impl AstNodeWrap for Rc<Ast> {
+    fn as_any(&self) -> AstNode {
+        AstNode::Ast(self.clone())
     }
     fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const Ast as usize)
+        AstNodeId(self.as_ref() as *const Ast as usize)
     }
     fn loc(&self) -> &Location {
         unimplemented!()
@@ -63,31 +67,30 @@ impl fmt::Debug for Ast {
     }
 }
 
-
 macro_rules! node_select {
-    ($name:ident, [ $( $elem:ident($ty:ty) ),* ]) => {
-        #[derive(Copy, Clone)]
+    ($name:ident, [ $( $elem:ident($ty:ty) ),* $(,)? ]) => {
         #[repr(C)]
+        #[derive(Clone)]
         pub enum $name {
             $( $elem($ty), )*
         }
         impl AstNodeWrap for $name {
             fn node_id(&self) -> AstNodeId {
                 match self {
-                    $( Self::$elem(e) => e.node_id(), )*
+                    $( $name::$elem(e) => e.node_id(), )*
                 }
             }
-            fn as_any(self) -> AstNode {
+            fn as_any(&self) -> AstNode {
                 match self {
                     $( Self::$elem(e) => e.as_any(), )*
                 }
             }
             fn loc(&self) -> &Location {
                 match self {
-                    $( Self::$elem(e) => e.loc(), )*
+                    $( $name::$elem(e) => { e.loc() } )*
                 }
             }
-            fn push_children(&self, dst: &mut Vec<AstNode>) {
+            fn push_children<'_a>(&'_a self, dst: &mut Vec<AstNode>) {
                 match self {
                     $( Self::$elem(e) => e.push_children(dst), )*
                 }
@@ -104,47 +107,47 @@ macro_rules! node_select {
 }
 
 node_select!(AstNode, [
-    Ast(&'static Ast),
-    ExprUnary(&'static ExprUnary),
-    ExprBinary(&'static ExprBinary),
-    ExprIdent(&'static ExprIdent),
-    ExprLiteral(&'static ExprLiteral),
-    ExprIf(&'static ExprIf),
-    ExprIfCase(&'static ExprIfCase),
-    ExprVarDecl(&'static ExprVarDecl),
-    ExprFnDecl(&'static ExprFnDecl),
-    ExprEntype(&'static ExprEntype),
-    ExprFnCall(&'static ExprFnCall),
-    ExprCurry(&'static ExprCurry),
-    Ident(&'static Ident),
-    LiteralInt(&'static LiteralInt),
-    LiteralString(&'static LiteralString),
-    LiteralBool(&'static LiteralBool),
-    LiteralNil(&'static LiteralNil)
+    Ast(Rc<Ast>),
+    ExprUnary(Rc<ExprUnary>),
+    ExprBinary(Rc<ExprBinary>),
+    ExprIdent(Rc<ExprIdent>),
+    ExprLiteral(Rc<ExprLiteral>),
+    ExprIf(Rc<ExprIf>),
+    ExprIfCase(Rc<ExprIfCase>),
+    ExprVarDecl(Rc<ExprVarDecl>),
+    ExprFnDecl(Rc<ExprFnDecl>),
+    ExprEntype(Rc<ExprEntype>),
+    ExprFnCall(Rc<ExprFnCall>),
+    ExprCurry(Rc<ExprCurry>),
+    Ident(Rc<Ident>),
+    LiteralInt(Rc<LiteralInt>),
+    LiteralString(Rc<LiteralString>),
+    LiteralBool(Rc<LiteralBool>),
+    LiteralNil(Rc<LiteralNil>),
 ]);
 
 node_select!(Literal, [
-    String(&'static LiteralString),
-    Int(&'static LiteralInt),
-    Bool(&'static LiteralBool),
-    Nil(&'static LiteralNil)
+    String(Rc<LiteralString>),
+    Int(Rc<LiteralInt>),
+    Bool(Rc<LiteralBool>),
+    Nil(Rc<LiteralNil>),
 ]);
 
 node_select!(Expr, [
-    Unary(&'static ExprUnary),
-    Binary(&'static ExprBinary),
-    Literal(&'static ExprLiteral),
-    Ident(&'static ExprIdent),
-    If(&'static ExprIf),
-    IfCase(&'static ExprIfCase),
-    VarDecl(&'static ExprVarDecl),
-    FnDecl(&'static ExprFnDecl),
-    Entype(&'static ExprEntype),
-    FnCall(&'static ExprFnCall),
-    Curry(&'static ExprCurry)
+    Unary(Rc<ExprUnary>),
+    Binary(Rc<ExprBinary>),
+    Literal(Rc<ExprLiteral>),
+    Ident(Rc<ExprIdent>),
+    If(Rc<ExprIf>),
+    IfCase(Rc<ExprIfCase>),
+    VarDecl(Rc<ExprVarDecl>),
+    FnDecl(Rc<ExprFnDecl>),
+    Entype(Rc<ExprEntype>),
+    FnCall(Rc<ExprFnCall>),
+    Curry(Rc<ExprCurry>),
 ]);
 impl Expr {
-    pub fn unwrap_ident(&self) -> &'static Ident {
+    pub fn unwrap_ident(&self) -> &Rc<Ident> {
         if let Expr::Ident(i) = self {
             i.ident()
         } else {
@@ -156,21 +159,22 @@ impl Expr {
 
 macro_rules! node {
     ($name:ident, $str:expr, { $($inner:ident: $in_ty:ty),* }, [ $($child:ident: $ty:ty),* ]) => {
+        #[derive(Clone)]
         pub struct $name {
             loc: Location,
             $( $inner : $in_ty, )*
             $( $child : $ty, )*
         }
         impl $name {
-            $( pub fn $child(&self) -> $ty { self.$child } )*
-            $( pub fn $inner(&self) -> $in_ty { self.$inner } )*
+            $( pub fn $child(&self) -> &$ty { &self.$child } )*
+            $( pub fn $inner(&self) -> &$in_ty { &self.$inner } )*
         }
-        impl AstNodeWrap for &'static $name {
-            fn as_any(self) -> AstNode {
-                AstNode::$name(self)
+        impl AstNodeWrap for Rc<$name> {
+            fn as_any(&self) -> AstNode {
+                AstNode::$name(self.clone())
             }
             fn node_id(&self) -> AstNodeId {
-                AstNodeId(*self as *const $name as usize)
+                AstNodeId(self.as_ref() as *const $name as usize)
             }
             fn loc(&self) -> &Location {
                 &self.loc
@@ -190,35 +194,46 @@ macro_rules! node {
     };
 }
 
-node!(Ident, "ident", { name: &'static str }, []);
-node!(LiteralString, "literal",
-    { val: &'static str }, []);
 node!(LiteralInt, "literal",
     { val: u64 }, []);
 node!(LiteralBool, "literal",
     { val: bool }, []);
 node!(LiteralNil, "literal nil", {}, []);
+node!(LiteralString, "literal",
+    { _val: ffi::CString }, []);
+impl LiteralString {
+    pub fn val(&self) -> &str {
+        self._val.to_str().unwrap()
+    }
+}
+
+node!(Ident, "ident", { _name: ffi::CString }, []);
+impl Ident {
+    pub fn name(&self) -> &str {
+        self._name.to_str().unwrap()
+    }
+}
 
 node!(ExprCurry, "curry", {}, []);
 node!(ExprLiteral, "expr literal",
-    {}, [ literal: &'static Literal ]);
+    {}, [ literal: Literal ]);
 node!(ExprIdent, "expr ident",
-    {}, [ ident: &'static Ident ]);
+    {}, [ ident: Rc<Ident> ]);
 node!(ExprIf, "expr if",
-    {}, [ cond: &'static Expr, then_expr: &'static Expr, else_expr: &'static Expr ]);
+    {}, [ cond: Expr, then_expr: Expr, else_expr: Expr ]);
 node!(ExprEntype, "expr entype",
-    {}, [ target: &'static Ident, ty: &'static Expr ]);
+    {}, [ target: Rc<Ident>, ty: Expr ]);
 node!(ExprVarDecl, "expr var_decl",
-    {}, [ name: &'static Ident, val: &'static Expr ]);
+    {}, [ name: Rc<Ident>, val: Expr ]);
 node!(ExprUnary, "expr unary",
     { operator: UnaryOp },
-    [ operand: &'static Expr ]);
+    [ operand: Expr ]);
 node!(ExprBinary, "expr binary",
     { operator: BinaryOp },
-    [ left: &'static Expr, right: &'static Expr ]);
+    [ left: Expr, right: Expr ]);
 impl ExprBinary {
-    pub fn operands(&self) -> (&'static Expr, &'static Expr) {
-        (self.left, self.right)
+    pub fn operands(&self) -> (&Expr, &Expr) {
+        (&self.left, &self.right)
     }
 }
 
@@ -243,9 +258,10 @@ pub enum BinaryOp {
     Eq,
 }
 
+#[derive(Clone)]
 pub enum IfCase {
-    OnVal(&'static Literal, &'static Expr),
-    Else(&'static Expr)
+    OnVal(Literal, Expr),
+    Else(Expr)
 }
 impl fmt::Debug for IfCase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -263,31 +279,31 @@ impl fmt::Debug for IfCase {
     }
 }
 
+#[derive(Clone)]
 pub struct ExprIfCase {
     loc: Location,
-    cond: &'static Expr,
-    cases: Option<&'static StaticLL<IfCase>>,
+    cond: Expr,
+    cases: StaticLL<IfCase>,
 }
 impl ExprIfCase {
-    pub fn cond(&self) -> &'static Expr {
-        self.cond
+    pub fn cond(&self) -> &Expr {
+        &self.cond
     }
-    pub fn cases(&self) -> impl Iterator<Item=&'static IfCase> {
-        adapt_ll(self.cases, |e| e.tail)
-            .map(|n| n.head)
+    pub fn cases(&self) -> impl Iterator<Item=&IfCase> {
+        self.cases.iter()
     }
 }
-impl AstNodeWrap for &'static ExprIfCase {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprIfCase(self)
+impl AstNodeWrap for Rc<ExprIfCase> {
+    fn as_any(&self) -> AstNode {
+        AstNode::ExprIfCase(self.clone())
     }
     fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprIfCase as usize)
+        AstNodeId(self.as_ref() as *const ExprIfCase as usize)
     }
     fn loc(&self) -> &Location {
         &self.loc
     }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
+    fn push_children<'a>(&'a self, dst: &mut Vec<AstNode>) {
         dst.push(self.cond().as_any());
         for c in self.cases() {
             match c {
@@ -311,40 +327,41 @@ impl fmt::Debug for ExprIfCase {
     }
 }
 
+#[derive(Clone)]
 pub struct ExprFnDecl {
     loc: Location,
-    name: Option<&'static Expr>,
-    val: &'static Expr,
-    args: Option<&'static StaticLL<Expr>>,
+    name: Option<Expr>,
+    val: Expr,
+    args: StaticLL<Box<Expr>>,
     pure: bool
 }
 impl ExprFnDecl {
-    pub fn name(&self) -> Option<&'static Ident> {
-        self.name
+    pub fn name(&self) -> Option<&Rc<Ident>> {
+        self.name.as_ref()
             .map(|e| e.unwrap_ident())
     }
-    pub fn val(&self) -> &'static Expr {
-        self.val
+    pub fn val(&self) -> &Expr {
+        &self.val
     }
-    pub fn args(&self) -> impl Iterator<Item=&'static Ident> {
-        adapt_ll(self.args, |e| e.tail)
-            .map(|e| e.head.unwrap_ident())
+    pub fn args(&self) -> impl Iterator<Item=&Rc<Ident>> {
+        self.args.iter()
+            .map(|e| e.unwrap_ident())
     }
     pub fn pure(&self) -> bool {
         self.pure
     }
 }
-impl AstNodeWrap for &'static ExprFnDecl {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprFnDecl(self)
+impl AstNodeWrap for Rc<ExprFnDecl> {
+    fn as_any(&self) -> AstNode {
+        AstNode::ExprFnDecl(self.clone())
     }
     fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprFnDecl as usize)
+        AstNodeId(self.as_ref() as *const ExprFnDecl as usize)
     }
     fn loc(&self) -> &Location {
         &self.loc
     }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
+    fn push_children<'a>(&'a self, dst: &mut Vec<AstNode>) {
         if let Some(name) = self.name() {
             dst.push(name.as_any());
         }
@@ -369,35 +386,36 @@ impl fmt::Debug for ExprFnDecl {
     }
 }
 
+#[derive(Clone)]
 pub struct ExprFnCall {
     loc: Location,
-    callee: &'static Expr,
-    args: Option<&'static StaticLL<Expr>>,
+    callee: Expr,
+    args: StaticLL<Box<Expr>>,
     pure: bool,
 }
 impl ExprFnCall {
-    pub fn callee(&self) -> &'static Expr {
-        self.callee
+    pub fn callee(&self) -> &Expr {
+        &self.callee
     }
-    pub fn args(&self) -> impl Iterator<Item=&'static Expr> {
-        adapt_ll(self.args, |e| e.tail)
-            .map(|n| n.head)
+    pub fn args(&self) -> impl Iterator<Item=&Expr> {
+        self.args.iter()
+            .map(|e| e.as_ref())
     }
     pub fn pure(&self) -> bool {
         self.pure
     }
 }
-impl AstNodeWrap for &'static ExprFnCall {
-    fn as_any(self) -> AstNode {
-        AstNode::ExprFnCall(self)
+impl AstNodeWrap for Rc<ExprFnCall> {
+    fn as_any(&self) -> AstNode {
+        AstNode::ExprFnCall(self.clone())
     }
     fn node_id(&self) -> AstNodeId {
-        AstNodeId(*self as *const ExprFnCall as usize)
+        AstNodeId(self.as_ref() as *const ExprFnCall as usize)
     }
     fn loc(&self) -> &Location {
         &self.loc
     }
-    fn push_children(&self, dst: &mut Vec<AstNode>) {
+    fn push_children<'a>(&'a self, dst: &mut Vec<AstNode>) {
         dst.push(self.callee().as_any());
         dst.extend(self.args().map(|a| a.as_any()));
     }
@@ -415,179 +433,226 @@ impl fmt::Debug for ExprFnCall {
 
 use std::os::raw::c_char;
 
-fn static_ref<T: 'static>(val: T) -> &'static T {
-    Box::leak(Box::new(val))
+fn static_ref<T: 'static>(val: T) -> *const T {
+    Rc::into_raw(Rc::new(val))
+}
+fn static_mut<T: 'static>(val: T) -> *mut T {
+    Box::into_raw(Box::new(val))
 }
 
-#[repr(C)]
-struct StaticLL<T: 'static> {
-    head: &'static T,
-    tail: Option<&'static StaticLL<T>>
+#[derive(Clone)]
+struct StaticLLNode<T> {
+    head: T,
+    tail: StaticLL<T>
 }
 
-pub struct ExprLL(StaticLL<Expr>);
-pub struct CaseLL(StaticLL<IfCase>);
+#[derive(Clone)]
+struct StaticLL<T>(Option<Box<StaticLLNode<T>>>);
+impl<T> StaticLL<T> {
+    fn iter(&self) -> impl Iterator<Item=&T> {
+        lliter::adapt_ll(self.0.as_ref(), |h| h.tail.0.as_ref())
+            .map(|i| &i.head)
+    }
+}
+
+#[repr(transparent)]
+pub struct ExprLLNode(StaticLLNode<Box<Expr>>);
+#[repr(transparent)]
+pub struct CaseLL(StaticLLNode<IfCase>);
 
 #[no_mangle]
-pub extern fn ast_create(decls: Option<&'static ExprLL>) -> &'static Ast {
-    static_ref(Ast { decls: decls.map(|e| &e.0) })
+pub unsafe extern fn ast_create(decls: Option<&'static mut ExprLLNode>) -> *const Ast {
+    let ll = StaticLL(decls.map(|e| Box::from_raw(&mut e.0)));
+    static_ref(Ast { decls: ll })
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_literal(loc: Location, literal: &'static Literal) -> &'static Expr {
-    static_ref(Expr::Literal(
-        static_ref(ExprLiteral {
-            loc, literal
+pub unsafe extern fn ast_add_expr_literal(loc: Location, literal: &'static mut Literal) -> *mut Expr {
+    static_mut(Expr::Literal(
+        Rc::new(ExprLiteral {
+            loc,
+            literal: *Box::from_raw(literal)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_ident(loc: Location, ident: &'static Ident) -> &'static Expr {
-    static_ref(Expr::Ident(
-        static_ref(ExprIdent {
-            loc, ident
+pub unsafe extern fn ast_add_expr_ident(loc: Location, ident: &'static Ident) -> *mut Expr {
+    static_mut(Expr::Ident(
+        Rc::new(ExprIdent {
+            loc, ident: Rc::from_raw(ident)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_unary(loc: Location, operator: UnaryOp, operand: &'static Expr) -> &'static Expr {
-    static_ref(Expr::Unary(
-        static_ref(ExprUnary {
-            loc, operator, operand
+pub unsafe extern fn ast_add_expr_unary(loc: Location, operator: UnaryOp, operand: &'static mut Expr) -> *mut Expr {
+    static_mut(Expr::Unary(
+        Rc::new(ExprUnary {
+            loc,
+            operator,
+            operand: *Box::from_raw(operand)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_binary(loc: Location, left: &'static Expr, operator: BinaryOp, right: &'static Expr) -> &'static Expr {
-    static_ref(Expr::Binary(
-        static_ref(ExprBinary {
-            loc, left, operator, right
+pub unsafe extern fn ast_add_expr_binary(loc: Location, left: &'static mut Expr, operator: BinaryOp, right: &'static mut Expr) -> *mut Expr {
+    static_mut(Expr::Binary(
+        Rc::new(ExprBinary {
+            loc,
+            left: *Box::from_raw(left),
+            operator,
+            right: *Box::from_raw(right)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if(loc: Location, cond: &'static Expr, then_expr: &'static Expr, else_expr: &'static Expr) -> &'static Expr {
-    static_ref(Expr::If(
-        static_ref(ExprIf {
-            loc, cond, then_expr, else_expr
+pub unsafe extern fn ast_add_expr_if(loc: Location, cond: &'static mut Expr, then_expr: &'static mut Expr, else_expr: &'static mut Expr) -> *mut Expr {
+    static_mut(Expr::If(
+        Rc::new(ExprIf {
+            loc,
+            cond: *Box::from_raw(cond),
+            then_expr: *Box::from_raw(then_expr),
+            else_expr: *Box::from_raw(else_expr)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_if_case(loc: Location, cond: &'static Expr, cases: Option<&'static CaseLL>) -> &'static Expr {
-    let cases = cases.map(|e| &e.0);
-    static_ref(Expr::IfCase(
-        static_ref(ExprIfCase {
-            loc, cond, cases
+pub unsafe extern fn ast_add_expr_if_case(loc: Location, cond: &'static mut Expr, cases: Option<&'static mut CaseLL>) -> *mut Expr {
+    let cases = cases.map(|e| Box::from_raw(&mut e.0));
+    static_mut(Expr::IfCase(
+        Rc::new(ExprIfCase {
+            loc,
+            cond: *Box::from_raw(cond),
+            cases: StaticLL(cases)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_var_decl(loc: Location, name: &'static Expr, val: &'static Expr) -> &'static Expr {
-    static_ref(Expr::VarDecl(
-        static_ref(ExprVarDecl {
-            loc, name: name.unwrap_ident(), val
+pub unsafe extern fn ast_add_expr_var_decl(loc: Location, name: &'static mut Expr, val: &'static mut Expr) -> *mut Expr {
+    let name = Box::from_raw(name);
+    let name = name.unwrap_ident().clone();
+    static_mut(Expr::VarDecl(
+        Rc::new(ExprVarDecl {
+            loc,
+            name,
+            val: *Box::from_raw(val)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_entype(loc: Location, target: &'static Expr, ty: &'static Expr) -> &'static Expr {
-    static_ref(Expr::Entype(
-        static_ref(ExprEntype {
-            loc, target: target.unwrap_ident(), ty
+pub unsafe extern fn ast_add_expr_entype(loc: Location, target: &'static mut Expr, ty: &'static mut Expr) -> *mut Expr {
+    let target = Box::from_raw(target);
+    let target = target.unwrap_ident().clone();
+    static_mut(Expr::Entype(
+         Rc::new(ExprEntype {
+            loc,
+            target,
+            ty: *Box::from_raw(ty)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_decl(loc: Location, pure: bool, name: Option<&'static Expr>, args: Option<&'static ExprLL>, val: &'static Expr) -> &'static Expr {
-    let args = args.map(|e| &e.0);
-    static_ref(Expr::FnDecl(
-        static_ref(ExprFnDecl {
-            loc, pure, name, args, val
+pub unsafe extern fn ast_add_expr_fn_decl(loc: Location, pure: bool, name: Option<&'static mut Expr>, args: Option<&'static mut ExprLLNode>, val: &'static mut Expr) -> *mut Expr {
+    let args = args.map(|e| Box::from_raw(&mut e.0));
+    static_mut(Expr::FnDecl(
+        Rc::new(ExprFnDecl {
+            loc,
+            pure,
+            name: name.map(|n| *Box::from_raw(n)),
+            args: StaticLL(args),
+            val: *Box::from_raw(val)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_fn_call(loc: Location, pure: bool, callee: &'static Expr, args: Option<&'static ExprLL>) -> &'static Expr {
-    let args = args.map(|e| &e.0);
-    static_ref(Expr::FnCall(
-        static_ref(ExprFnCall {
-            loc, pure, callee, args
+pub unsafe extern fn ast_add_expr_fn_call(loc: Location, pure: bool, callee: &'static mut Expr, args: Option<&'static mut ExprLLNode>) -> *mut Expr {
+    let args = args.map(|e| Box::from_raw(&mut e.0));
+    static_mut(Expr::FnCall(
+        Rc::new(ExprFnCall {
+            loc,
+            pure,
+            callee: *Box::from_raw(callee),
+            args: StaticLL(args)
         })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_expr_curry(loc: Location) -> &'static Expr {
-    static_ref(Expr::Curry(
-        static_ref(ExprCurry { loc })
+pub extern fn ast_add_expr_curry(loc: Location) -> *mut Expr {
+    static_mut(Expr::Curry(
+        Rc::new(ExprCurry { loc })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_int(loc: Location, val: u64) -> &'static Literal {
-    static_ref(Literal::Int(
-        static_ref(LiteralInt { loc, val })
+pub extern fn ast_add_literal_int(loc: Location, val: u64) -> *mut Literal {
+    static_mut(Literal::Int(
+        Rc::new(LiteralInt { loc, val })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_str(loc: Location, s: *const c_char) -> &'static Literal {
-    let s = unsafe { ffi::CStr::from_ptr(s) }
-        .to_str()
-        .unwrap();
-    static_ref(Literal::String(
-        static_ref(LiteralString { loc, val: s })
+pub extern fn ast_strdup(s: *const c_char) -> *mut c_char {
+    unsafe { ffi::CStr::from_ptr(s) }
+        .to_owned()
+        .into_raw()
+}
+
+#[no_mangle]
+pub extern fn ast_add_literal_str(loc: Location, s: *mut c_char) -> *mut Literal {
+    let s = unsafe { ffi::CString::from_raw(s) };
+    static_mut(Literal::String(
+        Rc::new(LiteralString { loc, _val: s })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_bool(loc: Location, b: bool) -> &'static Literal {
-    static_ref(Literal::Bool(
-        static_ref(LiteralBool { loc, val: b })
+pub extern fn ast_add_literal_bool(loc: Location, b: bool) -> *mut Literal {
+    static_mut(Literal::Bool(
+        Rc::new(LiteralBool { loc, val: b })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_literal_nil(loc: Location) -> &'static Literal {
-    static_ref(Literal::Nil(
-        static_ref(LiteralNil { loc })
+pub extern fn ast_add_literal_nil(loc: Location) -> *mut Literal {
+    static_mut(Literal::Nil(
+        Rc::new(LiteralNil { loc })
     ))
 }
 
 #[no_mangle]
-pub extern fn ast_add_ident(loc: Location, name: *const c_char) -> &'static Ident {
-    let name = unsafe { ffi::CStr::from_ptr(name) }
-        .to_str()
-        .unwrap();
-    static_ref(Ident { loc, name })
+pub extern fn ast_add_ident(loc: Location, name: *mut c_char) -> *const Ident {
+    let name = unsafe { ffi::CString::from_raw(name) };
+    static_ref(Ident { loc, _name: name })
 }
 
 #[no_mangle]
-pub extern fn ast_prepend_expr_list(item: &'static Expr, list: Option<&'static ExprLL>) -> &'static ExprLL {
-    static_ref(ExprLL(StaticLL {
+pub unsafe extern fn ast_prepend_expr_list(item: &'static mut Expr, list: Option<&'static mut ExprLLNode>) -> *mut ExprLLNode {
+    let item = Box::from_raw(item);
+    static_mut(ExprLLNode(StaticLLNode {
         head: item,
-        tail: list.map(|e| &e.0)
+        tail: StaticLL(list.map(|e| Box::from_raw(&mut e.0)))
     }))
 }
 
 #[no_mangle]
-pub extern fn ast_prepend_case_list(case: Option<&'static Literal>, then: &'static Expr, list: Option<&'static CaseLL>) -> &'static CaseLL {
-    static_ref(CaseLL(StaticLL {
-        head: if let Some(case) = case {
-            static_ref(IfCase::OnVal(case, then))
-        } else {
-            static_ref(IfCase::Else(then))
-        },
-        tail: list.map(|e| &e.0)
-    }))
+pub unsafe extern fn ast_prepend_case_list(case: Option<&'static mut Literal>, then: &'static mut Expr, list: Option<&'static mut CaseLL>) -> *mut CaseLL {
+    static_mut(
+        CaseLL(StaticLLNode {
+            head: if let Some(case) = case {
+                IfCase::OnVal(*Box::from_raw(case), *Box::from_raw(then))
+            } else {
+                IfCase::Else(*Box::from_raw(then))
+            },
+            tail: StaticLL(list.map(|e| Box::from_raw(&mut e.0)))
+        })
+    )
 }

@@ -37,7 +37,7 @@
 "false"                                 {   yylval->boolean = false;
                                             return LITERAL_BOOL; }
 
-[a-zA-Z_][0-9a-zA-Z_]*                  {   yylval->str = strdup(yytext);
+[a-zA-Z_][0-9a-zA-Z_]*                  {   yylval->str = ast_strdup(yytext);
                                             return IDENT; }
 [0-9]+                                  {   yylval->num = strtoull(yytext, NULL, 10);
                                             if (errno == ERANGE) {
@@ -47,7 +47,7 @@
                                             }
                                         }
 
-\"(\\.|[^"])*\"                         {   char *str = strdup(yytext + 1);
+\"(\\.|[^"])*\"                         {   char *str = ast_strdup(yytext + 1);
                                             str[yyleng - 2] = 0;
                                             yylval->str = str;
                                             return LITERAL_STR; }

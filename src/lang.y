@@ -15,6 +15,7 @@
     #include <stdio.h>
 
     void yyerror(YYLTYPE *loc, parse_ctx_t *ctx, const char *err) {
+        (void)ctx;
         fprintf(stderr, "%d:%d %s\n", loc->first_line, loc->first_column, err);
     }
 
@@ -23,13 +24,13 @@
 
 %union {
     const Ast *prgm;
-    const ExprLL *expr_list;
-    const Expr *expr;
-    const CaseLL *case_list;
-    const Literal *lit;
     const Ident *ident;
+    Expr *expr;
+    Literal *lit;
+    ExprLLNode *expr_list;
+    CaseLL *case_list;
 
-    const char *str;
+    char *str;
     uint64_t num;
     bool boolean;
 }

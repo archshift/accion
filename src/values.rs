@@ -74,7 +74,7 @@ pub enum Value {
     String(String),
     Type(TypeId),
     List(ValList),
-    Fn(&'static ast::ExprFnDecl),
+    Fn(Rc<ast::ExprFnDecl>),
     TypeFn(fn(FnArgs, &mut TypeStore) -> Value),
     BuiltinFn(fn(FnArgs, &mut dyn Interpreter) -> Value),
     Undefined,

@@ -100,14 +100,14 @@ impl Interpreter for ConstEvalCtx<'_> {
             .borrow_mut()
             .add(name, val)
     }
-    fn get(&self, name: &'static str) -> Result<Value, String> {
+    fn get(&self, name: &str) -> Result<Value, String> {
         self.frames.last()
             .ok_or_else(|| "No frame found!".to_owned())
             .and_then(|p| p.borrow().get(name))
     }
 }
 impl ConstEvalCtx<'_> {
-    fn visit_pure<T: AstNodeWrap>(&mut self, node: T) {
+    fn visit_pure<T: AstNodeWrap>(&mut self, node: &T) {
         let any_node = node.as_any();
         let purity = self.purity.node_purity(any_node.clone());
         match purity {
@@ -138,7 +138,7 @@ impl ConstVals {
     }
 }
 
-pub fn analyze(ast: &'static ast::Ast, types: &mut TypeStore, purity: &Purities, scopes: &Scopes) -> ConstVals {
+pub fn analyze(ast: &Rc<ast::Ast>, types: &mut TypeStore, purity: &Purities, scopes: &Scopes) -> ConstVals {
     let mut ctx = ConstEvalCtx {
         frames: Vec::new(),
         types,
@@ -161,16 +161,16 @@ pub fn analyze(ast: &'static ast::Ast, types: &mut TypeStore, purity: &Purities,
 }
 
 impl Visitor for ConstEvalCtx<'_> {
-    fn visit_ast(&mut self, ast: &'static ast::Ast) {
+    fn visit_ast(&mut self, ast: &Rc<ast::Ast>) {
         for decl in ast.decls() {
-            self.visit_pure(*decl);
+            self.visit_pure(decl);
         }
     }
-    fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary) {
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) {
         let (left, right) = node.operands();
-        self.visit_pure(*left);
+        self.visit_pure(left);
         let left = self.take_yield();
-        self.visit_pure(*right);
+        self.visit_pure(right);
         let right = self.take_yield();
         
         self.yield_val = match node.operator() {
@@ -202,9 +202,9 @@ impl Visitor for ConstEvalCtx<'_> {
             ast::BinaryOp::LastUnit => right,
         };
     }
-    fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary) {
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) {
         let operand = node.operand();
-        self.visit_pure(*operand);
+        self.visit_pure(operand);
         let operand = self.take_yield();
         
         self.yield_val = match node.operator() {
@@ -227,12 +227,12 @@ impl Visitor for ConstEvalCtx<'_> {
             },
         };
     }
-    fn visit_expr_fn_call(&mut self, node: &'static ast::ExprFnCall) {
-        self.visit_pure(*node.callee());
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) {
+        self.visit_pure(node.callee());
         let callee = self.take_yield();
 
         let arg_vals: values::FnArgs = node.args()
-            .map(|e| { self.visit_pure(*e); self.take_yield() })
+            .map(|e| { self.visit_pure(e); self.take_yield() })
             .collect();
 
         match callee {
@@ -248,7 +248,7 @@ impl Visitor for ConstEvalCtx<'_> {
                     err_recover(res, node.loc(), ());
                 }
 
-                self.visit_pure(*callee_val);
+                self.visit_pure(callee_val);
                 self.pop_frame();
             }
             Value::TypeFn(func) => {
@@ -261,8 +261,8 @@ impl Visitor for ConstEvalCtx<'_> {
         };
     }
     
-    fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
-        self.visit_pure(*node.cond());
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) {
+        self.visit_pure(node.cond());
         let cond_val = self.take_yield();
         let chosen = match cond_val {
             Value::Bool(true) => node.then_expr(),
@@ -270,46 +270,46 @@ impl Visitor for ConstEvalCtx<'_> {
             Value::Undefined => { self.yield_val = Value::Undefined; return }
             _ => unreachable!()
         };
-        self.visit_pure(*chosen);
+        self.visit_pure(chosen);
     }
-    fn visit_expr_if_case(&mut self, node: &'static ast::ExprIfCase) {
-        self.visit_pure(*node.cond());
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) {
+        self.visit_pure(node.cond());
         let cond_val = self.take_yield();
         for case in node.cases() {
             let chosen = match case {
                 ast::IfCase::OnVal(lit, val) => {
-                    self.visit_pure(**lit);
+                    self.visit_pure(lit);
                     if self.yield_val != cond_val { continue }
                     val
                 }
                 ast::IfCase::Else(out) => out
             };
 
-            self.visit_pure(**chosen);
+            self.visit_pure(chosen);
             return
         }
         self.yield_val = Value::Undefined;
     }
     
-    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         let target = node.target();
-        self.visit_pure(*node.ty());
+        self.visit_pure(node.ty());
         let ty =
             if let Value::Type(t) = self.take_yield() { t }
             else { panic!("Can't entype with non-type value!") };
         self.define_entype(target.name(), ty);
     }
     
-    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
-        self.visit_pure(*node.val());
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) {
+        self.visit_pure(node.val());
         let val = self.take_yield();
         let name = node.name();
         let res = self.define(name.name(), val);
         err_recover(res, node.loc(), ());
     }
 
-    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
-        let val = Value::Fn(node);
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) {
+        let val = Value::Fn(node.clone());
         if let Some(name) = node.name() {
             let res = self.define(name.name(), val.clone());
             err_recover(res, node.loc(), ());
@@ -317,29 +317,29 @@ impl Visitor for ConstEvalCtx<'_> {
         self.yield_val = val;
     }
 
-    fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral) {
-        self.visit_pure(*node.literal());
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>) {
+        self.visit_pure(node.literal());
     }
-    fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent) {
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) {
         self.visit_ident(node.ident());
     }
-    fn visit_expr_curry(&mut self, _: &'static ast::ExprCurry) {
+    fn visit_expr_curry(&mut self, _: &Rc<ast::ExprCurry>) {
         unimplemented!()
     }
 
-    fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>) {
         self.yield_val = Value::String(node.val().into())
     }
-    fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
-        self.yield_val = Value::Int(node.val())
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>) {
+        self.yield_val = Value::Int(*node.val())
     }
-    fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool) {
-        self.yield_val = Value::Bool(node.val())
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>) {
+        self.yield_val = Value::Bool(*node.val())
     }
-    fn visit_literal_nil(&mut self, _: &'static ast::LiteralNil) {
+    fn visit_literal_nil(&mut self, _: &Rc<ast::LiteralNil>) {
         self.yield_val = Value::List(values::ValList::empty())
     }
-    fn visit_ident(&mut self, node: &'static ast::Ident) {
+    fn visit_ident(&mut self, node: &Rc<ast::Ident>) {
         let name = node.name();
         let res = self.get(name);
         self.yield_val = err_recover(res, node.loc(), Value::Undefined);

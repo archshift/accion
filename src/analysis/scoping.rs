@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use crate::analysis::{preorder, Visitor};
 use crate::ast::{self, AstNodeWrap};
@@ -9,7 +10,7 @@ use crate::builtins::BuiltinMap;
 pub struct FwdDeclaration {
     pub name: String,
     pub scope: ScopeId,
-    pub entype: &'static ast::ExprEntype,
+    pub entype: Rc<ast::ExprEntype>,
 }
 
 #[derive(Debug)]
@@ -17,7 +18,8 @@ pub struct Definition {
     pub name: String,
     pub scope: ScopeId,
     pub node: ast::AstNode,
-    pub entype: Option<&'static ast::ExprEntype>,
+    pub entype: Option<Rc<ast::ExprEntype>>,
+    pub uses: Vec<ast::AstNode>,
     pub impure_fn: bool,
 }
 
@@ -115,6 +117,9 @@ impl ScopingCtx {
                     old, &decl),
         };
     }
+    fn add_use(&mut self, node: ast::AstNode) {
+        
+    }
 }
 
 #[derive(Debug)]
@@ -142,7 +147,7 @@ impl Scopes {
     }
 }
 
-pub fn analyze(root: &'static ast::Ast, builtins: BuiltinMap) -> Scopes {
+pub fn analyze(root: &Rc<ast::Ast>, builtins: BuiltinMap) -> Scopes {
     let mut ctx = ScopingCtx {
         scopes: Vec::new(),
         node_scopes: NodeScopes::new(),
@@ -169,33 +174,33 @@ pub fn analyze(root: &'static ast::Ast, builtins: BuiltinMap) -> Scopes {
 }
 
 impl Visitor for ScopingCtx {
-    fn visit_ast(&mut self, node: &ast::Ast) {
+    fn visit_ast(&mut self, node: &Rc<ast::Ast>) {
         for decl in node.decls() {
             self.set_scope(decl.node_id(), self.scope);
         }
     }
-    fn visit_expr_binary(&mut self, node: &ast::ExprBinary) {
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) {
         let (op1, op2) = node.operands();
         self.set_scope(op1.node_id(), self.scope);
         self.set_scope(op2.node_id(), self.scope);
     }
-    fn visit_expr_unary(&mut self, node: &ast::ExprUnary) {
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) {
         self.set_scope(node.operand().node_id(), self.scope);
     }
-    fn visit_expr_fn_call(&mut self, node: &ast::ExprFnCall) {
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) {
         self.set_scope(node.callee().node_id(), self.scope);
         for arg in node.args() {
             self.set_scope(arg.node_id(), self.scope);
         }
     }
-    fn visit_expr_if(&mut self, node: &ast::ExprIf) {
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) {
         let then_scope = self.new_scope(self.scope);
         let else_scope = self.new_scope(self.scope);
         self.set_scope(node.cond().node_id(), self.scope);
         self.set_scope(node.then_expr().node_id(), then_scope);
         self.set_scope(node.else_expr().node_id(), else_scope);
     }
-    fn visit_expr_if_case(&mut self, node: &ast::ExprIfCase) {
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) {
         self.set_scope(node.cond().node_id(), self.scope);
         let new_scope = self.new_scope(self.scope);
         for case in node.cases() {
@@ -206,26 +211,27 @@ impl Visitor for ScopingCtx {
             }
         }
     }
-    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         self.set_scope(node.target().node_id(), self.scope);
         self.set_scope(node.ty().node_id(), self.scope);
         self.fwd_decl(FwdDeclaration {
             name: node.target().name().to_owned(),
             scope: self.scope,
-            entype: node
+            entype: node.clone()
         });
     }
-    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) {
         self.set_scope(node.val().node_id(), self.scope);
         self.add_defn(Definition {
             name: node.name().name().to_owned(),
             scope: self.scope,
             node: node.as_any(),
+            uses: Vec::new(),
             entype: None,
             impure_fn: false,
         });
     }
-    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) {
         let body_scope = self.new_scope(self.scope);
         self.set_scope(node.val().node_id(), body_scope);
         
@@ -234,6 +240,7 @@ impl Visitor for ScopingCtx {
                 name: name.name().to_owned(),
                 scope: self.scope,
                 node: node.as_any(),
+                uses: Vec::new(),
                 entype: None,
                 impure_fn: !node.pure(),
             });
@@ -243,18 +250,22 @@ impl Visitor for ScopingCtx {
                 name: arg.name().to_owned(),
                 scope: body_scope,
                 node: arg.as_any(),
+                uses: Vec::new(),
                 entype: None,
                 impure_fn: false,
             });
         }
     }
 
-    fn visit_expr_literal(&mut self, _: &ast::ExprLiteral) {}
-    fn visit_expr_curry(&mut self, _: &ast::ExprCurry) {}
-    fn visit_expr_ident(&mut self, _: &ast::ExprIdent) {}
-    fn visit_literal_int(&mut self, _: &ast::LiteralInt) {}
-    fn visit_literal_str(&mut self, _: &ast::LiteralString) {}
-    fn visit_literal_bool(&mut self, _: &ast::LiteralBool) {}
-    fn visit_literal_nil(&mut self, _: &ast::LiteralNil) {}
-    fn visit_ident(&mut self, _: &ast::Ident) {}
+    fn visit_expr_ident(&mut self, _: &Rc<ast::ExprIdent>) {
+        let scope = self.scope;
+    }
+
+    fn visit_expr_literal(&mut self, _: &Rc<ast::ExprLiteral>) {}
+    fn visit_expr_curry(&mut self, _: &Rc<ast::ExprCurry>) {}
+    fn visit_literal_int(&mut self, _: &Rc<ast::LiteralInt>) {}
+    fn visit_literal_str(&mut self, _: &Rc<ast::LiteralString>) {}
+    fn visit_literal_bool(&mut self, _: &Rc<ast::LiteralBool>) {}
+    fn visit_literal_nil(&mut self, _: &Rc<ast::LiteralNil>) {}
+    fn visit_ident(&mut self, _: &Rc<ast::Ident>) {}
 }

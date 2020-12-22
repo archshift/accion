@@ -5,8 +5,10 @@ use accion::analysis::{scoping, purity, typing, constexpr};
 use accion::builtins;
 use accion::types::{Type, TypeStore};
 
+use std::rc::Rc;
+
 struct TestTyExprCtx {
-    ast: &'static ast::Ast,
+    ast: Rc<ast::Ast>,
     typing: typing::Types,
 }
 
@@ -17,10 +19,10 @@ impl TestTyExprCtx {
     
         let mut types = TypeStore::new();
         let builtins = builtins::make_builtins(&mut types);
-        let scopes = scoping::analyze(ast, builtins);
-        let purity = purity::analyze(ast, &scopes);
-        let constexpr = constexpr::analyze(ast, &mut types, &purity, &scopes);
-        let typing = typing::analyze(ast, types, &scopes, &constexpr);
+        let scopes = scoping::analyze(&ast, builtins);
+        let purity = purity::analyze(&ast, &scopes);
+        let constexpr = constexpr::analyze(&ast, &mut types, &purity, &scopes);
+        let typing = typing::analyze(&ast, types, &scopes, &constexpr);
 
         Self {
             ast,

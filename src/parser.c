@@ -26,7 +26,7 @@ int set_yyin_buf(yyscan_t scanner, const uint8_t *mem, size_t len) {
 // If ytype == YYIN_TYPE_STDIN, mem and limit are ignored.
 // If ytype == YYIN_TYPE_FILE, mem should point to the filename, and limit is ignored.
 // If ytype == YYIN_TYPE_MEM, mem should point to the buffer, and limit is the buffer length.
-int parse_yyin(Ast **ast, enum yyin_type ytype, const char *mem, size_t limit) {
+int parse_yyin(const Ast **ast, enum yyin_type ytype, const char *mem, size_t limit) {
     int res;
     yyscan_t scanner;
     res = yylex_init(&scanner);
@@ -38,14 +38,14 @@ int parse_yyin(Ast **ast, enum yyin_type ytype, const char *mem, size_t limit) {
     switch (ytype) {
         case YYIN_TYPE_STDIN: break;
         case YYIN_TYPE_MEM:
-            res = set_yyin_buf(scanner, mem, limit);
+            res = set_yyin_buf(scanner, (const uint8_t *)mem, limit);
             break;
         case YYIN_TYPE_FILE:
             res = set_yyin_file(scanner, mem);
             break;
     }
     if (res) {
-        printf("error opening input `%s`\n", res, mem);
+        printf("error %d: error opening input `%s`\n", res, mem);
         return res;
     }
 

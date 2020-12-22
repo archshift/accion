@@ -1,4 +1,5 @@
-use std::{collections::HashMap, unimplemented};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ast::{self, AstNodeWrap};
 use crate::analysis::{postorder, Visitor, scoping::Scopes};
@@ -43,13 +44,13 @@ impl Purities {
     }
 }
 
-pub fn analyze(root: &'static ast::Ast, scopes: &Scopes) -> Purities {
+pub fn analyze(root: &Rc<ast::Ast>, scopes: &Scopes) -> Purities {
     let mut ctx = PurityAnalysis {
         scopes,
         node_purity: NodePurities::new(),
     };
     
-    postorder(root, |node| {
+    postorder(root.as_any(), &mut |node| {
         ctx.visit_node(node);
     });
 
@@ -64,18 +65,18 @@ pub fn analyze(root: &'static ast::Ast, scopes: &Scopes) -> Purities {
 }
 
 impl Visitor for PurityAnalysis<'_> {
-    fn visit_expr_entype(&mut self, node: &'static ast::ExprEntype) {
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         let ty = node.ty();
         self.get(ty.as_any())
             .mix(Purity::Pure);
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_expr_literal(&mut self, node: &'static ast::ExprLiteral) {
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>) {
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_expr_ident(&mut self, node: &'static ast::ExprIdent) {
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) {
         let ident = node.ident();
         let name = ident.name();
         
@@ -104,7 +105,7 @@ impl Visitor for PurityAnalysis<'_> {
         self.mark_node(node.as_any(), purity);
     }
 
-    fn visit_expr_if(&mut self, node: &'static ast::ExprIf) {
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) {
         let cond = node.cond();
         let then_expr = node.then_expr();
         let else_expr = node.else_expr();
@@ -114,7 +115,7 @@ impl Visitor for PurityAnalysis<'_> {
         self.mark_node(node.as_any(), purity);
     }
 
-    fn visit_expr_if_case(&mut self, node: &'static ast::ExprIfCase) {
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) {
         let cond = node.cond();
         let mut purity = self.get(cond.as_any());
         for case in node.cases() {
@@ -129,12 +130,12 @@ impl Visitor for PurityAnalysis<'_> {
         self.mark_node(node.as_any(), purity);
     }
 
-    fn visit_expr_var_decl(&mut self, node: &'static ast::ExprVarDecl) {
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) {
         let val = node.val();
         self.mark_node(node.as_any(), self.get(val.as_any()));
     }
 
-    fn visit_expr_fn_decl(&mut self, node: &'static ast::ExprFnDecl) {
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) {
         // Actual decl itself may be pure, as can be all the argument decls.
         // Return val purity depends on the `!` operator.
 
@@ -153,16 +154,16 @@ impl Visitor for PurityAnalysis<'_> {
         }
     }
 
-    fn visit_expr_curry(&mut self, node: &'static ast::ExprCurry) {
+    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>) {
         unimplemented!()
     }
 
-    fn visit_expr_unary(&mut self, node: &'static ast::ExprUnary) {
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) {
         let inner = node.operand();
         self.mark_node(node.as_any(), self.get(inner.as_any()));
     }
 
-    fn visit_expr_binary(&mut self, node: &'static ast::ExprBinary) {
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) {
         let (left, right) = node.operands();
         let purity = self.get(left.as_any())
             .mix(self.get(right.as_any()));
@@ -170,7 +171,7 @@ impl Visitor for PurityAnalysis<'_> {
     
     }
 
-    fn visit_expr_fn_call(&mut self, node: &'static ast::ExprFnCall) {
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) {
         let callee = node.callee();
 
         let mut purity = if node.pure() { Purity::Any } else { Purity::Impure };
@@ -182,21 +183,21 @@ impl Visitor for PurityAnalysis<'_> {
         self.mark_node(node.as_any(), purity);
     }
 
-    fn visit_literal_int(&mut self, node: &'static ast::LiteralInt) {
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>) {
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_literal_str(&mut self, node: &'static ast::LiteralString) {
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>) {
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_literal_bool(&mut self, node: &'static ast::LiteralBool) {
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>) {
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_literal_nil(&mut self, node: &'static ast::LiteralNil) {
+    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>) {
         self.mark_node(node.as_any(), Purity::Any);
     }
 
-    fn visit_ident(&mut self, _: &ast::Ident) {}
+    fn visit_ident(&mut self, _: &Rc<ast::Ident>) {}
 }

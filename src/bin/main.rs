@@ -35,7 +35,7 @@ fn main() {
     let purity = purity::analyze(&ast, &scopes);
 
     if let Some("purity") = cmd {
-        analysis::preorder(ast, |node| {
+        analysis::preorder(&ast, |node| {
             if let Some(node_purity) = purity.node_purity(node.as_any()) {
                 println!("{:10?}  ~  {:?}", node_purity, node);
             }
@@ -45,10 +45,10 @@ fn main() {
 
     let constexpr = constexpr::analyze(&ast, &mut types, &purity, &scopes);
 
-    let mut types = typing::analyze(&ast, types, &scopes, &constexpr);
+    let types = typing::analyze(&ast, types, &scopes, &constexpr);
 
     if let Some("types") = cmd {
-        analysis::preorder(ast, |node| {
+        analysis::preorder(&ast, |node| {
             if let Some(ty) = types.node_type(node.node_id()) {
                 println!("{:30}  ~  {:?}", types.store.format_ty(ty), node);
             }

@@ -1,5 +1,6 @@
 use crate::ast::{Ast};
 use std::ptr;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum Error {
@@ -19,7 +20,7 @@ pub enum ParseInput<'a> {
     StrBuf(&'a str),
 }
 
-pub fn parse(input: ParseInput) -> Result<&'static Ast, Error> {
+pub fn parse(input: ParseInput) -> Result<Rc<Ast>, Error> {
     let mut ast: Option<&'static Ast> = None;
     extern {
         fn parse_yyin(ast_out: &mut Option<&'static Ast>, ytype: YyinType, mem: *const u8, limit: usize) -> i32;
@@ -33,7 +34,7 @@ pub fn parse(input: ParseInput) -> Result<&'static Ast, Error> {
 
     let err = unsafe { parse_yyin(&mut ast, ytype, mem, limit) };
     if err == 0 {
-        Ok(ast.unwrap())
+        Ok(unsafe { Rc::from_raw(ast.unwrap()) })
     } else {
         Err(Error::ParseError)
     }
