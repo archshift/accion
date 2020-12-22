@@ -117,8 +117,35 @@ impl ScopingCtx {
                     old, &decl),
         };
     }
-    fn add_use(&mut self, node: ast::AstNode) {
-        
+
+    fn resolve_mut<'a>(&'a mut self, mut scope_id: ScopeId, name: &str) -> Option<&'a mut Definition> {
+        while scope_id.0 != !0 {
+            let scope = &mut self.scopes[scope_id.0];
+            if scope.decls.get_mut(name).is_some() {
+                break
+            }
+            scope_id = scope.parent;
+        }
+
+        let scope = &mut self.scopes[scope_id.0];
+        let decl = scope.decls.get_mut(name);
+        decl.map(|d| {
+            match d {
+                Declaration::Defn(decl) => decl,
+                Declaration::FwdDecl(_) =>
+                    panic!("Cannot resolve name before it is fully defined!"),
+            }
+        })
+    }
+
+    fn add_use(&mut self, name: &str, node: ast::AstNode) {
+        if self.builtins.contains_key(name) { return }
+        let scope_id = self.node_scope_id(node.node_id())
+            .expect("Cannot mark unhandled node as a use!");
+
+        let defn = self.resolve_mut(scope_id, name)
+            .expect("Attempted to use an item before defining it!");
+        defn.uses.push(node);
     }
 }
 
@@ -175,7 +202,7 @@ pub fn analyze(root: &Rc<ast::Ast>, builtins: BuiltinMap) -> Scopes {
 
 impl Visitor for ScopingCtx {
     type Ret = ();
-    
+
     fn visit_ast(&mut self, node: &Rc<ast::Ast>) {
         for decl in node.decls() {
             self.set_scope(decl.node_id(), self.scope);
@@ -259,8 +286,8 @@ impl Visitor for ScopingCtx {
         }
     }
 
-    fn visit_expr_ident(&mut self, _: &Rc<ast::ExprIdent>) {
-        let scope = self.scope;
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) {
+        self.add_use(node.ident().name(), node.as_any());
     }
 
     fn visit_expr_literal(&mut self, _: &Rc<ast::ExprLiteral>) {}
