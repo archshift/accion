@@ -65,6 +65,9 @@ pub fn analyze(root: &Rc<ast::Ast>, scopes: &Scopes) -> Purities {
 }
 
 impl Visitor for PurityAnalysis<'_> {
+    type Ret = ();
+    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) {}
+
     fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         let ty = node.ty();
         self.get(ty.as_any())

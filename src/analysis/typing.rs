@@ -105,6 +105,9 @@ trait Typing : ast::AstNodeWrap {
 }
 
 impl Visitor for TypeAnalysis<'_> {
+    type Ret = ();
+    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) {}
+    
     fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) {
         let meta_id = self.types.add(Type::Type);
         let target = node.target();

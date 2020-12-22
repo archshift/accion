@@ -174,6 +174,8 @@ pub fn analyze(root: &Rc<ast::Ast>, builtins: BuiltinMap) -> Scopes {
 }
 
 impl Visitor for ScopingCtx {
+    type Ret = ();
+    
     fn visit_ast(&mut self, node: &Rc<ast::Ast>) {
         for decl in node.decls() {
             self.set_scope(decl.node_id(), self.scope);

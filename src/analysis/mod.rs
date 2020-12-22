@@ -8,9 +8,11 @@ use std::rc::Rc;
 use crate::ast;
 
 trait Visitor {
-    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) {}
+    type Ret;
 
-    fn visit_expr(&mut self, node: &Rc<ast::Expr>) {
+    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) -> Self::Ret;
+
+    fn visit_expr(&mut self, node: &Rc<ast::Expr>) -> Self::Ret {
         match node.as_ref() {
             ast::Expr::Binary(e) => self.visit_expr_binary(e),
             ast::Expr::Unary(e) => self.visit_expr_unary(e),
@@ -25,19 +27,19 @@ trait Visitor {
             ast::Expr::Curry(e) => self.visit_expr_curry(e),
         }
     }
-    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>);
-    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>);
-    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>);
-    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>);
-    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>);
-    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>);
-    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>);
-    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>);
-    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>);
-    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>);
-    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>);
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) -> Self::Ret;
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) -> Self::Ret;
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) -> Self::Ret;
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) -> Self::Ret;
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) -> Self::Ret;
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) -> Self::Ret;
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) -> Self::Ret;
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) -> Self::Ret;
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>) -> Self::Ret;
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) -> Self::Ret;
+    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>) -> Self::Ret;
 
-    fn visit_literal(&mut self, node: &Rc<ast::Literal>) {
+    fn visit_literal(&mut self, node: &Rc<ast::Literal>) -> Self::Ret {
         match node.as_ref() {
             ast::Literal::Int(l) => self.visit_literal_int(l),
             ast::Literal::String(l) => self.visit_literal_str(l),
@@ -45,13 +47,13 @@ trait Visitor {
             ast::Literal::Nil(l) => self.visit_literal_nil(l),
         }
     }
-    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>);
-    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>);
-    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>);
-    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>);
-    fn visit_ident(&mut self, node: &Rc<ast::Ident>);
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>) -> Self::Ret;
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>) -> Self::Ret;
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>) -> Self::Ret;
+    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>) -> Self::Ret;
+    fn visit_ident(&mut self, node: &Rc<ast::Ident>) -> Self::Ret;
 
-    fn visit_node(&mut self, node: &ast::AstNode) {
+    fn visit_node(&mut self, node: &ast::AstNode) -> Self::Ret {
         match node {
             ast::AstNode::Ast(n) => self.visit_ast(&n),
             ast::AstNode::ExprUnary(n) => self.visit_expr_unary(&n),
