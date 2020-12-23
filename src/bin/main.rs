@@ -1,7 +1,7 @@
 use std::env::args;
-use accion::analysis::{self, scoping, typing, purity, constexpr};
+use accion::analysis::{self, scoping, typing, purity, constexpr, backend};
 use accion::{types, builtins, parser};
-use accion::ast::AstNodeWrap;
+use accion::ast::{self, AstNodeWrap};
 
 fn next_arg<'a>(it: &mut impl Iterator<Item=String>, storage: &'a mut Option<String>) -> Option<&'a str> {
     *storage = it.next();
@@ -35,7 +35,7 @@ fn main() {
     let purity = purity::analyze(&ast, &scopes);
 
     if let Some("purity") = cmd {
-        analysis::preorder(&ast, |node| {
+        analysis::preorder(ast.as_any(), |node| {
             if let Some(node_purity) = purity.node_purity(node.as_any()) {
                 println!("{:10?}  ~  {:?}", node_purity, node);
             }
@@ -48,11 +48,22 @@ fn main() {
     let types = typing::analyze(&ast, types, &scopes, &constexpr);
 
     if let Some("types") = cmd {
-        analysis::preorder(&ast, |node| {
+        analysis::preorder(ast.as_any(), |node| {
             if let Some(ty) = types.node_type(node.node_id()) {
                 println!("{:30}  ~  {:?}", types.store.format_ty(ty), node);
             }
         });
         return
+    }
+
+    if let Some("live-ranges") = cmd {
+        for decl in ast.decls() {
+            if let ast::Expr::FnDecl(func) = decl {
+                println!("== Analyzing live ranges for fn `{}` ==", func.name().unwrap().name());
+                let ranges = backend::live_ranges(&scopes, func.clone());
+                backend::print_live_ranges(func.clone(), &ranges);
+                println!();
+            }
+        }
     }
 }

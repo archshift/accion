@@ -79,8 +79,7 @@ pub fn analyze(root: &Rc<ast::Ast>, types: TypeStore, scopes: &Scopes, constexpr
         node_entyped: NodeEntyped::new(),
     };
     
-    preorder(root, |node| {
-        println!("{:?}", node);
+    preorder(root.as_any(), |node| {
         ctx.visit_node(node);
     });
 

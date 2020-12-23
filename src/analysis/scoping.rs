@@ -172,6 +172,22 @@ impl Scopes {
         }
         None
     }
+
+    pub fn declaration(&self, node: ast::AstNode) -> Option<&Definition> {
+        let name = match &node {
+            ast::AstNode::ExprVarDecl(decl) => Some(decl.name().clone()),
+            ast::AstNode::ExprFnDecl(decl) => decl.name().cloned(),
+            ast::AstNode::Ident(decl) => Some(decl.clone()), // Could be a function argument
+            _ => None
+        };
+
+        let id = self.node_scope(node.node_id());
+        let maybe_decl = id.zip(name).and_then(|(id, ident)| {
+            let scope = &self.scopes[id.0];
+            scope.resolve(ident.name())
+        });
+        maybe_decl.filter(|decl| decl.node.node_id() == node.node_id())
+    }
 }
 
 pub fn analyze(root: &Rc<ast::Ast>, builtins: BuiltinMap) -> Scopes {
@@ -185,7 +201,7 @@ pub fn analyze(root: &Rc<ast::Ast>, builtins: BuiltinMap) -> Scopes {
     let global_scope = ctx.new_scope(ctx.scope);
     ctx.set_scope(root.node_id(), global_scope);
 
-    preorder(root, |node| {
+    preorder(root.as_any(), |node| {
         let node_id = node.node_id();
         if let Some(scope) = ctx.node_scope_id(node_id) {
             ctx.scope = scope;
@@ -275,6 +291,8 @@ impl Visitor for ScopingCtx {
             });
         }
         for arg in node.args() {
+            self.set_scope(arg.node_id(), body_scope);
+
             self.add_defn(Definition {
                 name: arg.name().to_owned(),
                 scope: body_scope,

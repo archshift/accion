@@ -2,6 +2,7 @@ pub mod scoping;
 pub mod typing;
 pub mod constexpr;
 pub mod purity;
+pub mod backend;
 
 use std::rc::Rc;
 
@@ -76,7 +77,7 @@ trait Visitor {
     }
 }
 
-pub fn preorder(ast: &Rc<ast::Ast>, mut f: impl FnMut(&ast::AstNode)) {
+pub fn preorder(ast: ast::AstNode, mut f: impl FnMut(&ast::AstNode)) {
     use crate::ast::AstNodeWrap;
 
     let mut upcoming = vec![vec![ast.as_any()]];
