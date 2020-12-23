@@ -97,3 +97,35 @@ fn impure_global() {
     "#;
     TestPurityCtx::analyze(program);
 }
+
+#[test]
+fn impure_closure_capture() {
+    let program = r#"
+        print!(x) := debug(x)
+        main!(x) :=
+            let impure_x := print!(x);
+            let debug_impure_x!() := debug(impure_x);
+            debug_impure_x!()
+    "#;
+    let ctx = TestPurityCtx::analyze(program);
+
+    let decls: Vec<_> = ctx.ast.decls().collect();
+    let main = unwrap_node!(decls[1], ExprFnDecl);
+    ctx.assert_pure(&main);
+
+    let main_val = unwrap_node!(main.val(), ExprBinary);
+    let impure_x = unwrap_node!(main_val.left(), ExprVarDecl);
+    vardecl_check_name!(impure_x, "impure_x");
+    ctx.assert_impure(&main_val);
+    ctx.assert_impure(&impure_x);
+
+    let main_val = unwrap_node!(main_val.right(), ExprBinary);
+    let debug_impure_x = unwrap_node!(main_val.left(), ExprFnDecl);
+    fndecl_check_name!(debug_impure_x, "debug_impure_x");
+    ctx.assert_impure(&main_val);
+    ctx.assert_pure(&debug_impure_x);
+    ctx.assert_impure(debug_impure_x.val());
+
+    let main_val = unwrap_node!(main_val.right(), ExprFnCall);
+    ctx.assert_impure(&main_val);
+}

@@ -157,7 +157,7 @@ impl Visitor for PurityAnalysis<'_> {
         }
     }
 
-    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>) {
+    fn visit_expr_curry(&mut self, _node: &Rc<ast::ExprCurry>) {
         unimplemented!()
     }
 

@@ -103,7 +103,7 @@ pub fn preorder(ast: &Rc<ast::Ast>, mut f: impl FnMut(&ast::AstNode)) {
     }
 }
 
-pub fn postorder(node: ast::AstNode, mut f: &mut impl FnMut(&ast::AstNode)) {
+pub fn postorder(node: ast::AstNode, f: &mut impl FnMut(&ast::AstNode)) {
     use crate::ast::AstNodeWrap;
     let mut children = Vec::new();
     node.push_children(&mut children);

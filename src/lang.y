@@ -69,7 +69,7 @@
 
 %type program
 %type <lit> literal
-%type <expr_list> decl_list arg_list ident_list
+%type <expr_list> decl_list arg_list arg_or_more_list ident_list ident_or_more_list
 %type <expr> expr decl ident_expr
 %type <case_list> case_list
 
@@ -105,16 +105,22 @@ decl
                                             { $$ = ast_add_expr_fn_decl(LOC, false, $1, $4, $7); }
     ;
 
-ident_list
+ident_or_more_list
     : ident_expr "," ident_list             { $$ = ast_prepend_expr_list($1, $3); }
     | ident_expr                            { $$ = ast_prepend_expr_list($1, NULL); }
     ;
+ident_list
+    : ident_or_more_list                    { $$ = $1; }
+    | /* empty */                           { $$ = NULL; }
 
-arg_list
+arg_or_more_list
     : expr "," arg_list                     { $$ = ast_prepend_expr_list($1, $3); }
     | expr                                  { $$ = ast_prepend_expr_list($1, NULL); }
     | "..."                                 { $$ = ast_prepend_expr_list(ast_add_expr_curry(LOC), NULL); }
     ;
+arg_list
+    : arg_or_more_list                      { $$ = $1; }
+    | /* empty */                           { $$ = NULL; }
 
 ident_expr
     : IDENT                                 { $$ = ast_add_expr_ident(LOC, ast_add_ident(LOC, $1) ); }
