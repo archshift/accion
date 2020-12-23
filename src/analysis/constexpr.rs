@@ -132,6 +132,19 @@ impl ConstVals {
         self.global_frame.0.borrow()
             .get_entype(&decl.name)
     }
+
+    pub fn node_val(&self, node: ast::AstNode) -> Option<Value> {
+        let name = match node {
+            ast::AstNode::ExprVarDecl(vd) => vd.name().clone(),
+            ast::AstNode::ExprFnDecl(vd) =>
+                if let Some(name) = vd.name() { name.clone() }
+                else { return None }
+            _ => return None
+        };
+        self.global_frame.0.borrow()
+            .get(name.name())
+            .ok()
+    }
 }
 
 pub fn analyze(ast: &Rc<ast::Ast>, types: &mut TypeStore, purity: &Purities, scopes: &Scopes) -> ConstVals {

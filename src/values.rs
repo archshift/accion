@@ -89,7 +89,7 @@ impl PartialEq for Value {
             (Self::String(i), Self::String(j)) => i == j,
             (Self::Type(i), Self::Type(j)) => i == j,
             (Self::List(i), Self::List(j)) => i == j,
-            (Self::Fn(i), Self::Fn(j)) => ptr::eq(i, j),
+            (Self::Fn(i), Self::Fn(j)) => Rc::ptr_eq(i, j),
             _ => false
         }
     }

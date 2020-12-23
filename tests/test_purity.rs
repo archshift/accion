@@ -7,6 +7,8 @@ use types::Purity;
 
 use std::rc::Rc;
 
+mod utils;
+
 struct TestPurityCtx {
     ast: Rc<ast::Ast>,
     purity: purity::Purities,
@@ -34,19 +36,6 @@ impl TestPurityCtx {
     fn assert_pure<T: AstNodeWrap>(&self, node: &T) {
         assert_ne!(self.purity.node_purity(node.as_any()), Some(Purity::Impure));
     }
-}
-
-macro_rules! unwrap_node {
-    ($node:expr, $ty:ident) => {{
-        if let ast::AstNode::$ty(inner) = $node.as_any() { inner }
-        else { panic!("Expected AST node {} but got val {:?}", stringify!($ty), $node) }
-    }};
-}
-
-macro_rules! fndecl_check_name {
-    ($node:expr, $name:expr) => {
-        assert_eq!($node.name().unwrap().name(), $name);
-    };
 }
 
 #[test]
