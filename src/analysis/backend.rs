@@ -1,20 +1,22 @@
-use std::rc::Rc;
+use std::{rc::Rc};
 
-use crate::analysis::{postorder};
+use crate::analysis::{postorder, Visitor};
 use crate::analysis::typing::Types;
 use crate::analysis::scoping::Scopes;
-use crate::ast::{self, AstNodeWrap};
+use crate::ast::{self, AstNodeWrap, BinaryOp};
 use crate::id_map::{Id, IdMap};
 
-use iced_x86::Register;
+use iced_x86::{Code as Opcode, Instruction, MemoryOperand, Register};
 
 use super::preorder;
-
 
 // For allocating registers, we want to keep track of the following information:
 // - First, we want to know what registers *must* correspond to a value once execution
 //   reaches a certain AstNode. This is for register positions mandated by the ABI.
-// - Second, we want to 
+// - Second, we want to assign free values in a somewhat-optimal way so as to minimize
+//   moves and spills to memory.
+// - Whatever values could not be assigned at a particular instance in execution, gets
+//   spilled to the stack.
 
 struct RegBank {
     available: Vec<Register>,
@@ -116,5 +118,142 @@ pub fn print_live_ranges(func: Rc<ast::ExprFnDecl>, ranges: &LiveRanges) {
     for (end, start) in sorted_ends {
         let node = ranges.live_begin.get(start).unwrap();
         println!("{:<5} -> {:<5} :: {:?}", start.0, end.0, nodes_by_id.get(node).unwrap());
+    }
+}
+
+enum Location {
+    Reg(Register),
+    Mem(MemoryOperand)
+}
+
+struct Backend {
+
+}
+
+impl Backend {
+    fn location_of(&self, node: &ast::Expr) -> Location {
+        unimplemented!()
+    }
+}
+
+impl Visitor for Backend {
+    type Ret = Location;
+
+    fn visit_ast(&mut self, _ast: &Rc<ast::Ast>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_unary(&mut self, node: &Rc<ast::ExprUnary>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_binary(&mut self, node: &Rc<ast::ExprBinary>) -> Self::Ret {
+        let (left, right) = node.operands();
+        let loc1 = self.location_of(left);
+        let loc2 = self.location_of(right);
+
+        let inst = match (node.operator(), loc1, loc2) {
+            // Add
+            | (BinaryOp::Add, Location::Reg(op1), Location::Reg(op2))
+                => Instruction::with_reg_reg(
+                    Opcode::Add_rm64_r64, op1, op2
+                ),
+            | (BinaryOp::Add, Location::Mem(op2), Location::Reg(op1))
+            | (BinaryOp::Add, Location::Reg(op1), Location::Mem(op2))
+                => Instruction::with_reg_mem(
+                    Opcode::Add_r64_rm64, op1, op2
+                ),
+            | (BinaryOp::Add, Location::Mem(op1), Location::Mem(op2)) => {
+                unimplemented!()
+            }
+
+            // Sub
+            | (BinaryOp::Sub, Location::Reg(op1), Location::Reg(op2))
+                => Instruction::with_reg_reg(
+                    Opcode::Sub_rm64_r64, op1, op2
+                ),
+            | (BinaryOp::Sub, Location::Mem(op2), Location::Reg(op1))
+            | (BinaryOp::Sub, Location::Reg(op1), Location::Mem(op2))
+                => Instruction::with_reg_mem(
+                    Opcode::Sub_r64_rm64, op1, op2
+                ),
+            | (BinaryOp::Sub, Location::Mem(op1), Location::Mem(op2)) => {
+                unimplemented!()
+            }
+
+            // Mul
+            | (BinaryOp::Mul, Location::Reg(op1), Location::Reg(op2)) => {
+                // Opcode::Mul_rm64
+                unimplemented!()
+            }
+            | (BinaryOp::Mul, Location::Mem(op1), Location::Reg(op2))
+            | (BinaryOp::Mul, Location::Reg(op2), Location::Mem(op1)) => {
+                // Opcode::Mul_rm64
+                unimplemented!()
+            }
+            | (BinaryOp::Mul, Location::Mem(op1), Location::Mem(op2)) => {
+                unimplemented!()
+            }
+
+            _ => unimplemented!()
+        };
+
+        unimplemented!()
+    }
+
+    fn visit_expr_fn_call(&mut self, node: &Rc<ast::ExprFnCall>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_fn_decl(&mut self, node: &Rc<ast::ExprFnDecl>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_if(&mut self, node: &Rc<ast::ExprIf>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_if_case(&mut self, node: &Rc<ast::ExprIfCase>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_literal(&mut self, node: &Rc<ast::ExprLiteral>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_var_decl(&mut self, node: &Rc<ast::ExprVarDecl>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_literal_bool(&mut self, node: &Rc<ast::LiteralBool>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_literal_int(&mut self, node: &Rc<ast::LiteralInt>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_literal_nil(&mut self, node: &Rc<ast::LiteralNil>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_literal_str(&mut self, node: &Rc<ast::LiteralString>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_entype(&mut self, node: &Rc<ast::ExprEntype>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_ident(&mut self, node: &Rc<ast::ExprIdent>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_ident(&mut self, node: &Rc<ast::Ident>) -> Self::Ret {
+        unimplemented!()
+    }
+
+    fn visit_expr_curry(&mut self, node: &Rc<ast::ExprCurry>) -> Self::Ret {
+        unimplemented!()
     }
 }
